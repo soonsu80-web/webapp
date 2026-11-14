@@ -1,0 +1,6 @@
+{
+  "name": "코드를 읽고 다시 쓰는 바이브 코딩 · 1차시 수업 사이트",
+  "description": "고등학교 1학년 정보 1차시: 실생활 문제 탐색 및 앱 기획서 작성·제출·교사 확인 수업 웹앱",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

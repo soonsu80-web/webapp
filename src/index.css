@@ -1,0 +1,24 @@
+@import "tailwindcss";
+
+@layer base {
+  :root {
+    --font-sans: "Plus Jakarta Sans", "Noto Sans KR", -apple-system, BlinkMacSystemFont, sans-serif;
+    --font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+
+  html {
+    font-family: var(--font-sans);
+    scroll-behavior: smooth;
+  }
+
+  body {
+    background-color: #f8fafc;
+    color: #0f172a;
+    line-height: 1.6;
+  }
+}
+
+.font-mono-tabular {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
