@@ -13,7 +13,9 @@ const DISCOVERY_SOURCES: DiscoverySource[] = [
 ];
 
 const EMPTY_FORM: AppPlanInput = {
-  studentLabel: '',
+  grade: '',
+  classRoom: '',
+  studentName: '',
   discoverySource: '수업 중 학교문제 토론',
   problemSummary: '',
   urgencyReason: '',
@@ -51,7 +53,9 @@ export default function AppPlanForm({
   useEffect(() => {
     if (currentDraft) {
       setForm({
-        studentLabel: currentDraft.studentLabel,
+        grade: currentDraft.grade,
+        classRoom: currentDraft.classRoom,
+        studentName: currentDraft.studentName,
         discoverySource: currentDraft.discoverySource,
         problemSummary: currentDraft.problemSummary,
         urgencyReason: currentDraft.urgencyReason,
@@ -78,8 +82,8 @@ export default function AppPlanForm({
     setErrorMessage(null);
     setSubmitNotice(null);
 
-    if (!form.studentLabel.trim()) {
-      setErrorMessage('작성자 구분(예: 반/번호 또는 닉네임)을 입력해 주세요.');
+    if (!form.grade.trim() || !form.classRoom.trim() || !form.studentName.trim()) {
+      setErrorMessage('작성자의 학년, 반, 성명을 모두 입력해 주세요.');
       return;
     }
     if (!form.problemSummary.trim() || !form.urgencyReason.trim() || !form.publicBenefitReason.trim()) {
@@ -182,23 +186,61 @@ export default function AppPlanForm({
       )}
 
       <form onSubmit={handleSubmit} className="mt-6 space-y-6 sm:space-y-8">
-        {/* 작성자 구분 */}
+        {/* 작성자 정보 (학년 · 반 · 성명) */}
         <div className="rounded-xl border border-slate-200 bg-white p-4 sm:p-6">
           <div className="flex flex-wrap items-baseline justify-between gap-2">
-            <label htmlFor="studentLabel" className="text-sm font-semibold text-slate-900">
-              작성자 구분 (개인)
-            </label>
-            <span className="text-xs text-slate-500">개인정보(성명 전체·연락처 등) 입력 금지</span>
+            <span className="text-sm font-semibold text-slate-900">작성자 정보 (개인)</span>
+            <span className="text-xs text-slate-500">연락처·주소 등 추가 개인정보 입력 금지</span>
           </div>
-          <input
-            id="studentLabel"
-            type="text"
-            maxLength={80}
-            value={form.studentLabel}
-            onChange={(e) => updateField('studentLabel', e.target.value)}
-            placeholder="예: 1학년 2반 15번 또는 닉네임"
-            className="mt-2.5 min-h-[44px] w-full rounded-lg border border-slate-300 bg-white px-3.5 py-2.5 text-base text-slate-900 placeholder:text-slate-400 focus:border-sky-600 focus:outline-none focus:ring-2 focus:ring-sky-600/20 sm:text-sm"
-          />
+
+          <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-3">
+            <div>
+              <label htmlFor="authorGrade" className="block text-xs font-medium text-slate-700">
+                학년
+              </label>
+              <input
+                id="authorGrade"
+                type="text"
+                inputMode="numeric"
+                maxLength={20}
+                value={form.grade}
+                onChange={(e) => updateField('grade', e.target.value)}
+                placeholder="예: 1"
+                className="mt-1.5 min-h-[44px] w-full rounded-lg border border-slate-300 bg-white px-3.5 py-2.5 text-base text-slate-900 placeholder:text-slate-400 focus:border-sky-600 focus:outline-none focus:ring-2 focus:ring-sky-600/20 sm:text-sm"
+              />
+            </div>
+
+            <div>
+              <label htmlFor="authorClass" className="block text-xs font-medium text-slate-700">
+                반
+              </label>
+              <input
+                id="authorClass"
+                type="text"
+                inputMode="numeric"
+                maxLength={20}
+                value={form.classRoom}
+                onChange={(e) => updateField('classRoom', e.target.value)}
+                placeholder="예: 3"
+                className="mt-1.5 min-h-[44px] w-full rounded-lg border border-slate-300 bg-white px-3.5 py-2.5 text-base text-slate-900 placeholder:text-slate-400 focus:border-sky-600 focus:outline-none focus:ring-2 focus:ring-sky-600/20 sm:text-sm"
+              />
+            </div>
+
+            <div>
+              <label htmlFor="authorName" className="block text-xs font-medium text-slate-700">
+                성명
+              </label>
+              <input
+                id="authorName"
+                type="text"
+                maxLength={40}
+                value={form.studentName}
+                onChange={(e) => updateField('studentName', e.target.value)}
+                placeholder="예: 홍길동"
+                className="mt-1.5 min-h-[44px] w-full rounded-lg border border-slate-300 bg-white px-3.5 py-2.5 text-base text-slate-900 placeholder:text-slate-400 focus:border-sky-600 focus:outline-none focus:ring-2 focus:ring-sky-600/20 sm:text-sm"
+              />
+            </div>
+          </div>
         </div>
 
         {/* 1단계: 들어가기 / 관찰하기 */}

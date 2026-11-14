@@ -12,7 +12,9 @@ export type StorageSyncState = 'pending_local' | 'synced';
 
 export interface AppPlanSubmission {
   id: string;
-  studentLabel: string;
+  grade: string;
+  classRoom: string;
+  studentName: string;
   discoverySource: DiscoverySource;
   problemSummary: string;
   urgencyReason: string;
@@ -32,7 +34,9 @@ export interface AppPlanSubmission {
 }
 
 export interface AppPlanInput {
-  studentLabel: string;
+  grade: string;
+  classRoom: string;
+  studentName: string;
   discoverySource: DiscoverySource;
   problemSummary: string;
   urgencyReason: string;

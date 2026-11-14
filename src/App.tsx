@@ -14,7 +14,18 @@ function loadSessionDrafts(): AppPlanSubmission[] {
     const raw = window.sessionStorage.getItem(SESSION_DRAFTS_KEY);
     if (!raw) return [];
     const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed : [];
+    if (!Array.isArray(parsed)) return [];
+    return parsed.map((item) => ({
+      ...item,
+      grade: typeof item?.grade === 'string' ? item.grade : '',
+      classRoom: typeof item?.classRoom === 'string' ? item.classRoom : '',
+      studentName:
+        typeof item?.studentName === 'string'
+          ? item.studentName
+          : typeof item?.studentLabel === 'string'
+            ? item.studentLabel
+            : '',
+    }));
   } catch {
     return [];
   }

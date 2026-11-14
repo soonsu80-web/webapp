@@ -23,6 +23,15 @@ function escapeCsvCell(value: string): string {
   return `"${safe}"`;
 }
 
+function formatAuthorLabel(plan: AppPlanSubmission): string {
+  const g = plan.grade.trim();
+  const c = plan.classRoom.trim();
+  const n = plan.studentName.trim();
+  const gradeText = g ? (g.endsWith('학년') ? g : `${g}학년`) : '';
+  const classText = c ? (c.endsWith('반') ? c : `${c}반`) : '';
+  return [gradeText, classText, n].filter(Boolean).join(' ');
+}
+
 interface TeacherReviewProps {
   storageConnected: boolean | null;
   plans: AppPlanSubmission[];
@@ -54,9 +63,11 @@ export default function TeacherReview({
     const q = searchQuery.trim().toLowerCase();
     return plans.filter((p) => {
       const matchesSource = sourceFilter === '전체' || p.discoverySource === sourceFilter;
+      const authorText = formatAuthorLabel(p).toLowerCase();
       const matchesQuery =
         !q ||
-        p.studentLabel.toLowerCase().includes(q) ||
+        authorText.includes(q) ||
+        p.studentName.toLowerCase().includes(q) ||
         p.problemSummary.toLowerCase().includes(q) ||
         p.featuresToImplement.toLowerCase().includes(q);
       return matchesSource && matchesQuery;
@@ -121,7 +132,9 @@ export default function TeacherReview({
 
   function handleExportCsv() {
     const headers = [
-      '작성자 구분',
+      '학년',
+      '반',
+      '성명',
       '저장 상태',
       '탐색 경로',
       '선정한 실생활 문제',
@@ -139,7 +152,9 @@ export default function TeacherReview({
       '작성 시각',
     ];
     const rows = plans.map((p) => [
-      p.studentLabel,
+      p.grade,
+      p.classRoom,
+      p.studentName,
       p.storageState === 'synced' ? '저장됨' : '저장 준비 중(임시)',
       p.discoverySource,
       p.problemSummary,
@@ -263,7 +278,7 @@ export default function TeacherReview({
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="작성자 구분, 문제 내용, 기능으로 검색"
+            placeholder="학년·반·성명, 문제 내용, 기능으로 검색"
             className="min-h-[44px] w-full rounded-lg border border-slate-300 bg-white py-2.5 pl-9 pr-3 text-base text-slate-900 placeholder:text-slate-400 focus:border-sky-600 focus:outline-none focus:ring-2 focus:ring-sky-600/20 sm:text-sm"
           />
         </div>
@@ -318,7 +333,9 @@ export default function TeacherReview({
                   }`}
                 >
                   <div className="flex items-center justify-between gap-2">
-                    <span className="text-sm font-semibold text-slate-900 truncate">{plan.studentLabel}</span>
+                    <span className="text-sm font-semibold text-slate-900 truncate">
+                      {formatAuthorLabel(plan)}
+                    </span>
                     <span
                       className={`text-xs font-medium whitespace-nowrap shrink-0 ${
                         plan.rubricLevel === '미확인' ? 'text-slate-400' : 'text-sky-700'
@@ -352,7 +369,9 @@ export default function TeacherReview({
                     <span aria-hidden="true">·</span>
                     <span>{selectedPlan.safetyChecked ? '안전 약속 확인함' : '안전 약속 미확인'}</span>
                   </div>
-                  <h3 className="mt-1 text-xl font-bold text-slate-900">{selectedPlan.studentLabel}</h3>
+                  <h3 className="mt-1 text-xl font-bold text-slate-900">
+                    {formatAuthorLabel(selectedPlan)}
+                  </h3>
                 </div>
 
                 <div>
