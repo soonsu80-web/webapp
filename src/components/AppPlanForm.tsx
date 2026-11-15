@@ -63,7 +63,7 @@ export default function AppPlanForm({
 
     if (!form.grade.trim() || !form.classRoom.trim() || !form.studentName.trim()) {
       setMissingDiscovery(true);
-      setErrorMessage('‘문제탐색’ 페이지에서 작성자의 학년, 반, 성명(가상 별칭)을 먼저 입력해 주세요.');
+      setErrorMessage('‘문제탐색’ 페이지에서 작성자의 학년, 반, 성명을 먼저 입력해 주세요.');
       return;
     }
     if (
@@ -126,10 +126,10 @@ export default function AppPlanForm({
 
   return (
     <section id="app-plan-form" className="mx-auto max-w-4xl px-4 py-8 sm:px-6 sm:py-10">
-      <div className="flex flex-wrap items-end justify-between gap-4 border-b border-slate-200 pb-5">
+      <div className="flex flex-wrap items-end justify-between gap-4 border-b border-slate-300 pb-5">
         <div>
-          <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 text-xs font-medium text-slate-500">
-            <span className="font-semibold text-sky-700">1차시 · 앱 기획서</span>
+          <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 font-mono-tabular text-xs font-semibold text-slate-600">
+            <span className="text-blue-700">1차시 · 앱 기획서</span>
             <span aria-hidden="true">·</span>
             <span>
               {backendMode === 'checking'
@@ -141,10 +141,10 @@ export default function AppPlanForm({
                     : '저장 준비 중 (/api 미연결)'}
             </span>
           </div>
-          <h1 className="mt-1.5 text-xl font-bold text-slate-900 sm:text-2xl">
+          <h1 className="mt-1.5 text-2xl font-extrabold tracking-tight text-slate-950 sm:text-3xl">
             웹앱 화면 구성 및 앱 기획서 완성
           </h1>
-          <p className="mt-1 text-sm text-slate-600">
+          <p className="mt-1.5 text-sm text-slate-600">
             문제탐색에서 정리한 내용을 바탕으로 화면 구성, 구현 기능, 데이터, 제약사항, 프로그래밍 원리를 작성하세요.
           </p>
         </div>
@@ -183,7 +183,7 @@ export default function AppPlanForm({
       )}
 
       {/* 문제탐색 연결 요약 */}
-      <div className="mt-6 rounded-xl border border-slate-200 bg-white p-4 sm:p-5">
+      <div className="mt-6 rounded-xl border border-slate-300 bg-white p-4 sm:p-5">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <div className="text-xs font-medium text-slate-500">
@@ -210,7 +210,7 @@ export default function AppPlanForm({
 
       <form onSubmit={handleSubmit} className="mt-6 space-y-6 sm:space-y-8">
         {/* 화면 구성 */}
-        <div className="rounded-xl border border-slate-200 bg-white p-4 sm:p-6 space-y-4">
+        <div className="rounded-xl border border-slate-300 bg-white p-4 sm:p-6 space-y-4">
           <div className="border-b border-slate-100 pb-3">
             <div className="text-xs font-medium text-slate-500">01. [활동] (과업)탐구하기</div>
             <h2 className="mt-0.5 text-base font-bold text-slate-900">
@@ -229,13 +229,13 @@ export default function AppPlanForm({
               value={form.screenComposition}
               onChange={(e) => handleFieldChange('screenComposition', e.target.value)}
               placeholder="일상생활에서 접하는 앱을 참고하여, 내 웹앱에 어떤 화면(예: 상단 제목, 입력창, 버튼, 결과 목록 등)과 구축 절차가 필요한지 적어 주세요."
-              className="mt-2 w-full rounded-lg border border-slate-300 bg-white px-3.5 py-3 text-base text-slate-900 placeholder:text-slate-400 focus:border-sky-600 focus:outline-none focus:ring-2 focus:ring-sky-600/20 sm:text-sm"
+              className="mt-2 w-full rounded-lg border border-slate-300 bg-white px-3.5 py-3 text-base text-slate-900 placeholder:text-slate-400 focus:border-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-600/20 sm:text-sm"
             />
           </div>
         </div>
 
         {/* 정리: 앱 기획서 4항목 */}
-        <div className="rounded-xl border border-slate-200 bg-white p-4 sm:p-6 space-y-5">
+        <div className="rounded-xl border border-slate-300 bg-white p-4 sm:p-6 space-y-5">
           <div className="border-b border-slate-100 pb-3">
             <div className="text-xs font-medium text-slate-500">02. [정리] 앱 기획서 완성</div>
             <h2 className="mt-0.5 text-base font-bold text-slate-900">
@@ -255,7 +255,7 @@ export default function AppPlanForm({
                 value={form.featuresToImplement}
                 onChange={(e) => handleFieldChange('featuresToImplement', e.target.value)}
                 placeholder="사용자가 버튼을 누르거나 입력했을 때 웹앱이 수행할 핵심 기능을 적어 주세요."
-                className="mt-2 w-full rounded-lg border border-slate-300 bg-white px-3.5 py-3 text-base text-slate-900 placeholder:text-slate-400 focus:border-sky-600 focus:outline-none focus:ring-2 focus:ring-sky-600/20 sm:text-sm"
+                className="mt-2 w-full rounded-lg border border-slate-300 bg-white px-3.5 py-3 text-base text-slate-900 placeholder:text-slate-400 focus:border-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-600/20 sm:text-sm"
               />
             </div>
 
@@ -270,7 +270,7 @@ export default function AppPlanForm({
                 value={form.dataToStore}
                 onChange={(e) => handleFieldChange('dataToStore', e.target.value)}
                 placeholder="웹앱에서 입력받아 기록하거나 유지해야 할 데이터 항목을 적어 주세요."
-                className="mt-2 w-full rounded-lg border border-slate-300 bg-white px-3.5 py-3 text-base text-slate-900 placeholder:text-slate-400 focus:border-sky-600 focus:outline-none focus:ring-2 focus:ring-sky-600/20 sm:text-sm"
+                className="mt-2 w-full rounded-lg border border-slate-300 bg-white px-3.5 py-3 text-base text-slate-900 placeholder:text-slate-400 focus:border-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-600/20 sm:text-sm"
               />
             </div>
 
@@ -285,7 +285,7 @@ export default function AppPlanForm({
                 value={form.constraints}
                 onChange={(e) => handleFieldChange('constraints', e.target.value)}
                 placeholder="개인정보 보호, 공공의 이익 침해 방지, 입력값 조건, 화면 크기 제한 등 지켜야 할 제약을 적어 주세요."
-                className="mt-2 w-full rounded-lg border border-slate-300 bg-white px-3.5 py-3 text-base text-slate-900 placeholder:text-slate-400 focus:border-sky-600 focus:outline-none focus:ring-2 focus:ring-sky-600/20 sm:text-sm"
+                className="mt-2 w-full rounded-lg border border-slate-300 bg-white px-3.5 py-3 text-base text-slate-900 placeholder:text-slate-400 focus:border-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-600/20 sm:text-sm"
               />
             </div>
 
@@ -300,24 +300,23 @@ export default function AppPlanForm({
                 value={form.programmingPrinciples}
                 onChange={(e) => handleFieldChange('programmingPrinciples', e.target.value)}
                 placeholder="문제 분해·모델링, 제어 구조(조건문·반복문 등), 데이터 구조 중 어떤 원리가 어디에 쓰이는지 설명해 주세요."
-                className="mt-2 w-full rounded-lg border border-slate-300 bg-white px-3.5 py-3 text-base text-slate-900 placeholder:text-slate-400 focus:border-sky-600 focus:outline-none focus:ring-2 focus:ring-sky-600/20 sm:text-sm"
+                className="mt-2 w-full rounded-lg border border-slate-300 bg-white px-3.5 py-3 text-base text-slate-900 placeholder:text-slate-400 focus:border-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-600/20 sm:text-sm"
               />
             </div>
           </div>
         </div>
 
         {/* 디지털 안전 약속 확인 및 응답 제출 */}
-        <div className="rounded-xl border border-slate-200 bg-white p-4 sm:p-6">
+        <div className="rounded-xl border border-slate-300 bg-white p-4 sm:p-6">
           <label className="flex min-h-[44px] items-start gap-3 py-1 cursor-pointer">
             <input
               type="checkbox"
               checked={form.safetyChecked}
               onChange={(e) => handleFieldChange('safetyChecked', e.target.checked)}
-              className="mt-0.5 h-5 w-5 shrink-0 rounded border-slate-300 text-sky-700 focus:ring-sky-600"
+              className="mt-0.5 h-5 w-5 shrink-0 rounded border-slate-300 text-blue-700 focus:ring-blue-600"
             />
             <span className="text-sm leading-relaxed text-slate-700">
-              <strong className="font-semibold text-slate-900">디지털 안전 약속 확인</strong> — 본 기획서에
-              실제 개인정보(실명·연락처·주소 등) 대신 가상 별칭을 사용했으며, 공공의 이익에 반하지 않는 주제로 작성했습니다.
+              <strong className="font-semibold text-slate-900">디지털 안전 약속 확인</strong> — 공공의 이익에 반하지 않는 주제로 작성하였습니다.
             </span>
           </label>
 
@@ -361,7 +360,7 @@ export default function AppPlanForm({
             <button
               type="submit"
               disabled={submitting}
-              className="inline-flex min-h-[48px] w-full items-center justify-center gap-2 rounded-lg bg-sky-700 px-5 py-3 text-sm font-semibold text-white hover:bg-sky-800 disabled:opacity-60 transition-colors whitespace-nowrap shrink-0 cursor-pointer sm:w-auto sm:min-h-[44px]"
+              className="inline-flex min-h-[48px] w-full items-center justify-center gap-2 rounded-lg bg-blue-700 px-5 py-3 text-sm font-bold text-white hover:bg-blue-800 disabled:opacity-60 transition-colors whitespace-nowrap shrink-0 cursor-pointer sm:w-auto sm:min-h-[46px]"
             >
               <Send className="h-4 w-4" />
               <span>{submitting ? '저장 요청 중...' : '앱 기획서 제출하기'}</span>

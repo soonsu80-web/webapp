@@ -219,7 +219,7 @@ function validatePlanBody(body: unknown) {
   const safetyChecked = raw.safetyChecked === true;
 
   if (!grade || !classRoom || !studentName) {
-    return { ok: false as const, error: '작성자의 학년, 반, 성명(또는 가상 별칭)을 모두 입력해 주세요.' };
+    return { ok: false as const, error: '작성자의 학년, 반, 성명을 모두 입력해 주세요.' };
   }
   if (!VALID_SOURCES.has(discoverySource)) {
     return { ok: false as const, error: '실생활 문제 탐색 경로를 올바르게 선택해 주세요.' };

@@ -109,17 +109,17 @@ export default function GalleryPage({ backendMode }: GalleryPageProps) {
 
   return (
     <section id="gallery-page" className="mx-auto max-w-6xl px-4 py-8 sm:px-6 sm:py-10">
-      <div className="flex flex-col gap-4 border-b border-slate-200 pb-6 sm:flex-row sm:items-end sm:justify-between">
+      <div className="flex flex-col gap-4 border-b border-slate-300 pb-6 sm:flex-row sm:items-end sm:justify-between">
         <div>
-          <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 text-xs font-medium text-slate-500">
-            <span className="font-semibold text-sky-700">실천·공유 · 갤러리</span>
+          <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 font-mono-tabular text-xs font-semibold text-slate-600">
+            <span className="text-blue-700">실천·공유 · 갤러리</span>
             <span aria-hidden="true">·</span>
             <span>교사 인증 후 전체 공개</span>
           </div>
-          <h1 className="mt-1.5 text-xl font-bold text-slate-900 sm:text-2xl">
+          <h1 className="mt-1.5 text-2xl font-extrabold tracking-tight text-slate-950 sm:text-3xl">
             바이브 코딩 프로젝트 갤러리
           </h1>
-          <p className="mt-1 text-sm text-slate-600">
+          <p className="mt-1.5 text-sm text-slate-600">
             내가 바이브 코딩으로 만든 웹페이지 주소를 등록하면, 교사 확인 및 인증을 거쳐 우리 반 갤러리에 게시됩니다.
           </p>
         </div>
@@ -129,7 +129,7 @@ export default function GalleryPage({ backendMode }: GalleryPageProps) {
             type="button"
             onClick={loadGallery}
             disabled={loading}
-            className="inline-flex min-h-[44px] flex-1 items-center justify-center gap-1.5 rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50 transition-colors whitespace-nowrap shrink-0 cursor-pointer sm:flex-initial"
+            className="inline-flex min-h-[44px] flex-1 items-center justify-center gap-1.5 rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-xs font-bold text-slate-800 hover:bg-slate-50 disabled:opacity-50 transition-colors whitespace-nowrap shrink-0 cursor-pointer sm:flex-initial"
           >
             <RefreshCw className="h-4 w-4" />
             <span>목록 새로고침</span>
@@ -141,7 +141,7 @@ export default function GalleryPage({ backendMode }: GalleryPageProps) {
               setShowForm((prev) => !prev);
               setSubmitNotice(null);
             }}
-            className="inline-flex min-h-[44px] flex-1 items-center justify-center gap-1.5 rounded-lg bg-sky-700 px-4 py-2.5 text-xs font-semibold text-white hover:bg-sky-800 transition-colors whitespace-nowrap shrink-0 cursor-pointer sm:flex-initial"
+            className="inline-flex min-h-[44px] flex-1 items-center justify-center gap-1.5 rounded-lg bg-blue-700 px-4 py-2.5 text-xs font-bold text-white hover:bg-blue-800 transition-colors whitespace-nowrap shrink-0 cursor-pointer sm:flex-initial"
           >
             {showForm ? <X className="h-4 w-4" /> : <Plus className="h-4 w-4" />}
             <span>{showForm ? '등록 양식 닫기' : '내 페이지 등록하기'}</span>
@@ -172,7 +172,7 @@ export default function GalleryPage({ backendMode }: GalleryPageProps) {
 
       {/* Student Submission Form */}
       {showForm && (
-        <div className="mt-6 rounded-2xl border border-slate-200 bg-white p-5 sm:p-6">
+        <div className="mt-6 rounded-2xl border border-slate-300 bg-white p-5 sm:p-6">
           <div className="border-b border-slate-100 pb-4">
             <h2 className="text-base font-bold text-slate-900 sm:text-lg">내 바이브 코딩 페이지 등록 신청</h2>
             <p className="mt-1 text-xs leading-relaxed text-slate-600">
@@ -193,7 +193,7 @@ export default function GalleryPage({ backendMode }: GalleryPageProps) {
                   value={form.studentId}
                   onChange={(e) => setForm((prev) => ({ ...prev, studentId: e.target.value }))}
                   placeholder="예: 10105"
-                  className="mt-1.5 min-h-[44px] w-full rounded-lg border border-slate-300 bg-white px-3.5 py-2.5 text-base text-slate-900 placeholder:text-slate-400 focus:border-sky-600 focus:outline-none focus:ring-2 focus:ring-sky-600/20 sm:text-sm"
+                  className="mt-1.5 min-h-[44px] w-full rounded-lg border border-slate-300 bg-white px-3.5 py-2.5 text-base text-slate-900 placeholder:text-slate-400 focus:border-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-600/20 sm:text-sm"
                 />
               </div>
 
@@ -208,7 +208,7 @@ export default function GalleryPage({ backendMode }: GalleryPageProps) {
                   value={form.studentName}
                   onChange={(e) => setForm((prev) => ({ ...prev, studentName: e.target.value }))}
                   placeholder="예: 푸른하늘"
-                  className="mt-1.5 min-h-[44px] w-full rounded-lg border border-slate-300 bg-white px-3.5 py-2.5 text-base text-slate-900 placeholder:text-slate-400 focus:border-sky-600 focus:outline-none focus:ring-2 focus:ring-sky-600/20 sm:text-sm"
+                  className="mt-1.5 min-h-[44px] w-full rounded-lg border border-slate-300 bg-white px-3.5 py-2.5 text-base text-slate-900 placeholder:text-slate-400 focus:border-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-600/20 sm:text-sm"
                 />
               </div>
             </div>
@@ -224,7 +224,7 @@ export default function GalleryPage({ backendMode }: GalleryPageProps) {
                 value={form.appUrl}
                 onChange={(e) => setForm((prev) => ({ ...prev, appUrl: e.target.value }))}
                 placeholder="https://example.pages.dev"
-                className="mt-1.5 min-h-[44px] w-full rounded-lg border border-slate-300 bg-white px-3.5 py-2.5 text-base text-slate-900 placeholder:text-slate-400 focus:border-sky-600 focus:outline-none focus:ring-2 focus:ring-sky-600/20 sm:text-sm"
+                className="mt-1.5 min-h-[44px] w-full rounded-lg border border-slate-300 bg-white px-3.5 py-2.5 text-base text-slate-900 placeholder:text-slate-400 focus:border-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-600/20 sm:text-sm"
               />
             </div>
 
@@ -239,7 +239,7 @@ export default function GalleryPage({ backendMode }: GalleryPageProps) {
                 value={form.intro}
                 onChange={(e) => setForm((prev) => ({ ...prev, intro: e.target.value }))}
                 placeholder="어떤 실생활 문제를 해결하는 웹페이지인지, 주요 기능을 간단히 소개해 주세요."
-                className="mt-1.5 w-full rounded-lg border border-slate-300 bg-white px-3.5 py-2.5 text-base text-slate-900 placeholder:text-slate-400 focus:border-sky-600 focus:outline-none focus:ring-2 focus:ring-sky-600/20 sm:text-sm"
+                className="mt-1.5 w-full rounded-lg border border-slate-300 bg-white px-3.5 py-2.5 text-base text-slate-900 placeholder:text-slate-400 focus:border-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-600/20 sm:text-sm"
               />
               <div className="mt-1 text-right text-[11px] text-slate-400 font-mono-tabular">
                 {form.intro.length} / 500
@@ -298,11 +298,11 @@ export default function GalleryPage({ backendMode }: GalleryPageProps) {
         )}
 
         {loading ? (
-          <div className="mt-4 rounded-xl border border-slate-200 bg-white p-10 text-center text-sm text-slate-500">
+          <div className="mt-4 rounded-xl border border-slate-300 bg-white p-10 text-center text-sm text-slate-500">
             갤러리 목록을 불러오는 중입니다...
           </div>
         ) : items.length === 0 ? (
-          <div className="mt-4 rounded-xl border border-slate-200 bg-white p-8 text-center sm:p-12">
+          <div className="mt-4 rounded-xl border border-slate-300 bg-white p-8 text-center sm:p-12">
             <p className="text-sm font-semibold text-slate-900">아직 교사 인증이 완료된 작품이 없습니다.</p>
             <p className="mt-1.5 text-xs leading-relaxed text-slate-600">
               바이브 코딩으로 제작한 웹페이지를 등록하면, 선생님이 확인 후 인증한 작품부터 이곳에 전시됩니다.
@@ -311,7 +311,7 @@ export default function GalleryPage({ backendMode }: GalleryPageProps) {
               <button
                 type="button"
                 onClick={() => setShowForm(true)}
-                className="mt-4 inline-flex min-h-[44px] items-center justify-center gap-1.5 rounded-lg bg-sky-700 px-5 py-2.5 text-xs font-semibold text-white hover:bg-sky-800 transition-colors cursor-pointer"
+                className="mt-4 inline-flex min-h-[44px] items-center justify-center gap-1.5 rounded-lg bg-blue-700 px-5 py-2.5 text-xs font-bold text-white hover:bg-blue-800 transition-colors cursor-pointer"
               >
                 <Plus className="h-4 w-4" />
                 <span>첫 번째 작품 등록하기</span>
@@ -323,12 +323,12 @@ export default function GalleryPage({ backendMode }: GalleryPageProps) {
             {items.map((item) => (
               <article
                 key={item.id}
-                className="flex flex-col justify-between rounded-xl border border-slate-200 bg-white p-5 transition-colors hover:border-slate-300"
+                className="flex flex-col justify-between rounded-xl border border-slate-300 bg-white p-5 transition-colors hover:border-slate-300"
               >
                 <div>
                   <div className="flex items-center justify-between gap-2 text-xs">
                     <div className="flex items-center gap-1.5 truncate">
-                      <span className="font-mono-tabular font-semibold text-sky-700">{item.studentId}</span>
+                      <span className="font-mono-tabular font-semibold text-blue-700">{item.studentId}</span>
                       <span aria-hidden="true" className="text-slate-300">
                         ·
                       </span>
@@ -350,7 +350,7 @@ export default function GalleryPage({ backendMode }: GalleryPageProps) {
                     href={item.appUrl}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="mt-2.5 inline-flex min-h-[44px] w-full items-center justify-center gap-1.5 rounded-lg border border-slate-300 bg-slate-50 px-3.5 py-2 text-xs font-semibold text-slate-800 hover:border-sky-700 hover:bg-sky-50 hover:text-sky-800 transition-colors"
+                    className="mt-2.5 inline-flex min-h-[44px] w-full items-center justify-center gap-1.5 rounded-lg border border-slate-300 bg-slate-950 px-3.5 py-2 text-xs font-bold text-white hover:bg-blue-700 hover:border-blue-700 transition-colors"
                   >
                     <span>작품 페이지 열기</span>
                     <ExternalLink className="h-3.5 w-3.5" />
