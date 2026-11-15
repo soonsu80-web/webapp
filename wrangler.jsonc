@@ -1,0 +1,18 @@
+{
+  "name": "my-classroom-site",
+  "main": "worker/index.ts",
+  "compatibility_date": "2025-03-01",
+  "assets": {
+    "directory": "./dist",
+    "binding": "ASSETS",
+    "run_worker_first": ["/api/*"],
+    "not_found_handling": "single-page-application"
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "classroom-db",
+      "database_id": "a49c1fc7-fead-46d7-b492-0c5460e418ce"
+    }
+  ]
+}

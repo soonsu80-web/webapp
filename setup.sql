@@ -1,0 +1,4 @@
+CREATE TABLE IF NOT EXISTS app_plans (id TEXT PRIMARY KEY, grade TEXT NOT NULL, class_room TEXT NOT NULL, student_name TEXT NOT NULL, discovery_source TEXT NOT NULL, problem_summary TEXT NOT NULL, urgency_reason TEXT NOT NULL, public_benefit_reason TEXT NOT NULL, inquiry_question TEXT NOT NULL, screen_composition TEXT NOT NULL, features_to_implement TEXT NOT NULL, data_to_store TEXT NOT NULL, constraints TEXT NOT NULL, programming_principles TEXT NOT NULL, safety_checked INTEGER NOT NULL DEFAULT 0, rubric_level TEXT NOT NULL DEFAULT '미확인', teacher_note TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
+CREATE INDEX IF NOT EXISTS idx_app_plans_updated_at ON app_plans(updated_at DESC);
+CREATE TABLE IF NOT EXISTS teacher_sessions (token_hash TEXT PRIMARY KEY, created_at TEXT NOT NULL, expires_at TEXT NOT NULL);
+CREATE INDEX IF NOT EXISTS idx_teacher_sessions_expires_at ON teacher_sessions(expires_at);
