@@ -1,5 +1,5 @@
 {
-  "name": "my-classroom-site",
+  "name": "webapp",
   "main": "worker/index.ts",
   "compatibility_date": "2025-03-01",
   "assets": {
