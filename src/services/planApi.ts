@@ -1,4 +1,11 @@
-import type { AppPlanInput, AppPlanSubmission, RubricLevel } from '../types/lesson';
+import type {
+  AppPlanInput,
+  AppPlanSubmission,
+  GalleryInput,
+  GalleryItem,
+  GalleryStatus,
+  RubricLevel,
+} from '../types/lesson';
 
 export type BackendMode = 'checking' | 'ready' | 'db_uninitialized' | 'unavailable';
 
@@ -241,6 +248,190 @@ export async function deletePlanFromApi(id: string): Promise<{
 }> {
   try {
     const res = await fetch(`/api/plans/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+      headers: { Accept: 'application/json' },
+      credentials: 'same-origin',
+    });
+    if (!isJsonResponse(res)) {
+      return { connected: false, ok: false, error: '인증/저장 서버(/api)에 연결되지 않았습니다.' };
+    }
+    const data = await res.json();
+    if (res.status === 401) {
+      return { connected: true, ok: false, unauthorized: true, error: '교사 세션이 만료되었습니다.' };
+    }
+    if (!res.ok) {
+      return {
+        connected: true,
+        ok: false,
+        error: typeof data?.error === 'string' ? data.error : '삭제에 실패했습니다.',
+      };
+    }
+    return { connected: true, ok: true };
+  } catch {
+    return { connected: false, ok: false, error: '서버와 통신하지 못했습니다.' };
+  }
+}
+
+export async function fetchApprovedGallery(): Promise<{
+  connected: boolean;
+  items: GalleryItem[];
+  error?: string;
+}> {
+  try {
+    const res = await fetch('/api/gallery', {
+      method: 'GET',
+      headers: { Accept: 'application/json' },
+      credentials: 'same-origin',
+    });
+    if (!isJsonResponse(res)) {
+      return { connected: false, items: [] };
+    }
+    const data = await res.json();
+    if (!res.ok) {
+      return {
+        connected: true,
+        items: [],
+        error: typeof data?.error === 'string' ? data.error : '갤러리 목록을 불러오지 못했습니다.',
+      };
+    }
+    return {
+      connected: true,
+      items: Array.isArray(data?.items) ? data.items : [],
+    };
+  } catch {
+    return { connected: false, items: [], error: '서버와 연결하지 못했습니다.' };
+  }
+}
+
+export async function submitGalleryItem(input: GalleryInput): Promise<{
+  connected: boolean;
+  ok: boolean;
+  item?: GalleryItem;
+  error?: string;
+}> {
+  try {
+    const res = await fetch('/api/gallery', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+      },
+      credentials: 'same-origin',
+      body: JSON.stringify(input),
+    });
+    if (!isJsonResponse(res)) {
+      return {
+        connected: false,
+        ok: false,
+        error: '저장 준비 중: /api 데이터 저장소가 연결되지 않아 등록되지 않았습니다.',
+      };
+    }
+    const data = await res.json();
+    if (!res.ok || !data?.item) {
+      return {
+        connected: true,
+        ok: false,
+        error: typeof data?.error === 'string' ? data.error : '갤러리 등록에 실패했습니다.',
+      };
+    }
+    return { connected: true, ok: true, item: data.item };
+  } catch {
+    return {
+      connected: false,
+      ok: false,
+      error: '저장 준비 중: 서버와 통신하지 못해 등록되지 않았습니다.',
+    };
+  }
+}
+
+export async function fetchTeacherGallery(): Promise<{
+  connected: boolean;
+  unauthorized?: boolean;
+  items: GalleryItem[];
+  error?: string;
+}> {
+  try {
+    const res = await fetch('/api/teacher/gallery', {
+      method: 'GET',
+      headers: { Accept: 'application/json' },
+      credentials: 'same-origin',
+    });
+    if (!isJsonResponse(res)) {
+      return { connected: false, items: [] };
+    }
+    const data = await res.json();
+    if (res.status === 401) {
+      return {
+        connected: true,
+        unauthorized: true,
+        items: [],
+        error: typeof data?.error === 'string' ? data.error : '교사 로그인이 필요합니다.',
+      };
+    }
+    if (!res.ok) {
+      return {
+        connected: true,
+        items: [],
+        error: typeof data?.error === 'string' ? data.error : '갤러리 신청 목록을 불러오지 못했습니다.',
+      };
+    }
+    return {
+      connected: true,
+      items: Array.isArray(data?.items) ? data.items : [],
+    };
+  } catch {
+    return { connected: false, items: [], error: '서버와 연결하지 못했습니다.' };
+  }
+}
+
+export async function updateTeacherGalleryStatus(
+  id: string,
+  status: GalleryStatus,
+): Promise<{
+  connected: boolean;
+  ok: boolean;
+  unauthorized?: boolean;
+  item?: GalleryItem;
+  error?: string;
+}> {
+  try {
+    const res = await fetch(`/api/teacher/gallery/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+      },
+      credentials: 'same-origin',
+      body: JSON.stringify({ status }),
+    });
+    if (!isJsonResponse(res)) {
+      return { connected: false, ok: false, error: '인증/저장 서버(/api)에 연결되지 않았습니다.' };
+    }
+    const data = await res.json();
+    if (res.status === 401) {
+      return { connected: true, ok: false, unauthorized: true, error: '교사 세션이 만료되었습니다.' };
+    }
+    if (!res.ok || !data?.item) {
+      return {
+        connected: true,
+        ok: false,
+        error: typeof data?.error === 'string' ? data.error : '상태 변경에 실패했습니다.',
+      };
+    }
+    return { connected: true, ok: true, item: data.item };
+  } catch {
+    return { connected: false, ok: false, error: '서버와 통신하지 못했습니다.' };
+  }
+}
+
+export async function deleteTeacherGalleryItem(id: string): Promise<{
+  connected: boolean;
+  ok: boolean;
+  unauthorized?: boolean;
+  error?: string;
+}> {
+  try {
+    const res = await fetch(`/api/teacher/gallery/${encodeURIComponent(id)}`, {
       method: 'DELETE',
       headers: { Accept: 'application/json' },
       credentials: 'same-origin',

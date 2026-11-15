@@ -4,10 +4,11 @@ import ProblemDiscovery from './components/ProblemDiscovery';
 import AppPlanForm from './components/AppPlanForm';
 import GalleryPage from './components/GalleryPage';
 import TeacherReview from './components/TeacherReview';
-import type { AppPlanInput, AppPlanSubmission } from './types/lesson';
+import type { AppPlanInput, AppPlanSubmission, GalleryItem } from './types/lesson';
 import {
   checkBackendHealth,
   checkTeacherSession,
+  fetchTeacherGallery,
   fetchTeacherPlans,
   type BackendMode,
 } from './services/planApi';
@@ -57,6 +58,7 @@ export default function App() {
   const [backendMode, setBackendMode] = useState<BackendMode>('checking');
   const [teacherAuthenticated, setTeacherAuthenticated] = useState(false);
   const [plans, setPlans] = useState<AppPlanSubmission[]>([]);
+  const [galleryItems, setGalleryItems] = useState<GalleryItem[]>([]);
   const [lastSavedPlan, setLastSavedPlan] = useState<AppPlanSubmission | null>(null);
   const [formInput, setFormInput] = useState<AppPlanInput>(loadSessionForm);
   const [loadingPlans, setLoadingPlans] = useState(false);
@@ -65,20 +67,25 @@ export default function App() {
   const loadTeacherData = useCallback(async () => {
     setLoadingPlans(true);
     setTeacherError(null);
-    const res = await fetchTeacherPlans();
-    if (res.unauthorized) {
+    const [plansRes, galleryRes] = await Promise.all([fetchTeacherPlans(), fetchTeacherGallery()]);
+    if (plansRes.unauthorized || galleryRes.unauthorized) {
       setTeacherAuthenticated(false);
       setPlans([]);
-      setTeacherError(res.error || '교사 로그인이 필요합니다.');
-    } else if (!res.connected) {
+      setGalleryItems([]);
+      setTeacherError(plansRes.error || galleryRes.error || '교사 로그인이 필요합니다.');
+    } else if (!plansRes.connected || !galleryRes.connected) {
       setBackendMode('unavailable');
       setPlans([]);
-      setTeacherError(res.error || '저장소와 연결되지 않았습니다.');
-    } else if (res.error) {
-      setTeacherError(res.error);
+      setGalleryItems([]);
+      setTeacherError(plansRes.error || galleryRes.error || '저장소와 연결되지 않았습니다.');
+    } else if (plansRes.error || galleryRes.error) {
+      setPlans(plansRes.plans);
+      setGalleryItems(galleryRes.items);
+      setTeacherError(plansRes.error || galleryRes.error || null);
     } else {
       setBackendMode('ready');
-      setPlans(res.plans);
+      setPlans(plansRes.plans);
+      setGalleryItems(galleryRes.items);
     }
     setLoadingPlans(false);
   }, []);
@@ -135,6 +142,14 @@ export default function App() {
 
   function handleRemovePlan(id: string) {
     setPlans((prev) => prev.filter((item) => item.id !== id));
+  }
+
+  function handleUpdateGalleryItem(updated: GalleryItem) {
+    setGalleryItems((prev) => prev.map((item) => (item.id === updated.id ? updated : item)));
+  }
+
+  function handleRemoveGalleryItem(id: string) {
+    setGalleryItems((prev) => prev.filter((item) => item.id !== id));
   }
 
   function navigateToPage(page: PageKey) {
@@ -252,13 +267,14 @@ export default function App() {
           />
         )}
 
-        {activePage === 'gallery' && <GalleryPage />}
+        {activePage === 'gallery' && <GalleryPage backendMode={backendMode} />}
 
         {activePage === 'teacher' && (
           <TeacherReview
             backendMode={backendMode}
             authenticated={teacherAuthenticated}
             plans={plans}
+            galleryItems={galleryItems}
             loading={loadingPlans}
             authError={teacherError}
             onAuthenticated={() => {
@@ -269,11 +285,14 @@ export default function App() {
             onLoggedOut={() => {
               setTeacherAuthenticated(false);
               setPlans([]);
+              setGalleryItems([]);
               setTeacherError(null);
             }}
             onRefresh={loadTeacherData}
             onUpdatePlan={handleUpdatePlan}
             onRemovePlan={handleRemovePlan}
+            onUpdateGalleryItem={handleUpdateGalleryItem}
+            onRemoveGalleryItem={handleRemoveGalleryItem}
           />
         )}
       </main>

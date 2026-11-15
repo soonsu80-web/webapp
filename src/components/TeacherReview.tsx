@@ -1,11 +1,13 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
-import { Check, Clock, Download, Lock, LogOut, RefreshCw, Search, Trash2 } from 'lucide-react';
-import type { AppPlanSubmission, RubricLevel } from '../types/lesson';
+import { Check, Clock, Download, ExternalLink, Lock, LogOut, RefreshCw, Search, Trash2 } from 'lucide-react';
+import type { AppPlanSubmission, GalleryItem, GalleryStatus, RubricLevel } from '../types/lesson';
 import {
   deletePlanFromApi,
+  deleteTeacherGalleryItem,
   loginTeacher,
   logoutTeacher,
   saveTeacherReviewToApi,
+  updateTeacherGalleryStatus,
   type BackendMode,
 } from '../services/planApi';
 
@@ -42,6 +44,7 @@ interface TeacherReviewProps {
   backendMode: BackendMode;
   authenticated: boolean;
   plans: AppPlanSubmission[];
+  galleryItems: GalleryItem[];
   loading: boolean;
   authError: string | null;
   onAuthenticated: () => void;
@@ -49,12 +52,23 @@ interface TeacherReviewProps {
   onRefresh: () => void;
   onUpdatePlan: (updated: AppPlanSubmission) => void;
   onRemovePlan: (id: string) => void;
+  onUpdateGalleryItem: (updated: GalleryItem) => void;
+  onRemoveGalleryItem: (id: string) => void;
 }
+
+type TeacherTab = 'plans' | 'gallery';
+
+const GALLERY_STATUS_META: Record<GalleryStatus, { label: string; textClass: string }> = {
+  pending: { label: '승인 대기', textClass: 'text-amber-700' },
+  approved: { label: '게시 완료', textClass: 'text-emerald-700' },
+  rejected: { label: '보류', textClass: 'text-slate-500' },
+};
 
 export default function TeacherReview({
   backendMode,
   authenticated,
   plans,
+  galleryItems,
   loading,
   authError,
   onAuthenticated,
@@ -62,7 +76,10 @@ export default function TeacherReview({
   onRefresh,
   onUpdatePlan,
   onRemovePlan,
+  onUpdateGalleryItem,
+  onRemoveGalleryItem,
 }: TeacherReviewProps) {
+  const [activeTab, setActiveTab] = useState<TeacherTab>('plans');
   const [password, setPassword] = useState('');
   const [loggingIn, setLoggingIn] = useState(false);
   const [loginError, setLoginError] = useState<string | null>(null);
@@ -76,6 +93,12 @@ export default function TeacherReview({
   const [savingReview, setSavingReview] = useState(false);
   const [reviewNotice, setReviewNotice] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+
+  const [gallerySearch, setGallerySearch] = useState('');
+  const [galleryStatusFilter, setGalleryStatusFilter] = useState<'all' | GalleryStatus>('all');
+  const [busyGalleryId, setBusyGalleryId] = useState<string | null>(null);
+  const [confirmDeleteGalleryId, setConfirmDeleteGalleryId] = useState<string | null>(null);
+  const [galleryNotice, setGalleryNotice] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null);
 
   const filteredPlans = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
@@ -173,6 +196,67 @@ export default function TeacherReview({
     }
   }
 
+  async function handleGalleryStatusChange(id: string, nextStatus: GalleryStatus) {
+    setBusyGalleryId(id);
+    setGalleryNotice(null);
+    try {
+      const res = await updateTeacherGalleryStatus(id, nextStatus);
+      if (res.unauthorized) {
+        onLoggedOut();
+        return;
+      }
+      if (res.ok && res.item) {
+        onUpdateGalleryItem(res.item);
+        const statusMsg =
+          nextStatus === 'approved'
+            ? '갤러리 게시가 승인되었습니다.'
+            : nextStatus === 'rejected'
+              ? '해당 항목을 보류 처리했습니다.'
+              : '해당 항목을 승인 대기 상태로 전환했습니다.';
+        setGalleryNotice({ kind: 'ok', text: statusMsg });
+      } else {
+        setGalleryNotice({ kind: 'err', text: res.error || '상태 변경에 실패했습니다.' });
+      }
+    } finally {
+      setBusyGalleryId(null);
+    }
+  }
+
+  async function handleDeleteGalleryItem(id: string) {
+    setBusyGalleryId(id);
+    setGalleryNotice(null);
+    try {
+      const res = await deleteTeacherGalleryItem(id);
+      if (res.unauthorized) {
+        onLoggedOut();
+        return;
+      }
+      if (res.ok) {
+        onRemoveGalleryItem(id);
+        setConfirmDeleteGalleryId(null);
+        setGalleryNotice({ kind: 'ok', text: '갤러리 신청 항목을 삭제했습니다.' });
+      } else {
+        setGalleryNotice({ kind: 'err', text: res.error || '항목 삭제에 실패했습니다.' });
+      }
+    } finally {
+      setBusyGalleryId(null);
+    }
+  }
+
+  const filteredGalleryItems = useMemo(() => {
+    const q = gallerySearch.trim().toLowerCase();
+    return galleryItems.filter((item) => {
+      const matchesStatus = galleryStatusFilter === 'all' || item.status === galleryStatusFilter;
+      const matchesQuery =
+        !q ||
+        item.studentId.toLowerCase().includes(q) ||
+        item.studentName.toLowerCase().includes(q) ||
+        item.intro.toLowerCase().includes(q) ||
+        item.appUrl.toLowerCase().includes(q);
+      return matchesStatus && matchesQuery;
+    });
+  }, [galleryItems, gallerySearch, galleryStatusFilter]);
+
   function handleExportCsv() {
     const headers = [
       '학년',
@@ -227,13 +311,15 @@ export default function TeacherReview({
   }
 
   const reviewedCount = plans.filter((p) => p.rubricLevel !== '미확인').length;
+  const pendingGalleryCount = galleryItems.filter((g) => g.status === 'pending').length;
+  const approvedGalleryCount = galleryItems.filter((g) => g.status === 'approved').length;
 
   return (
     <section className="mx-auto max-w-6xl px-4 py-8 sm:px-6 sm:py-10">
       <div className="flex flex-wrap items-end justify-between gap-4 border-b border-slate-200 pb-6">
         <div>
           <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 text-xs font-medium text-slate-500">
-            <span className="font-semibold text-sky-700">교사확인 · 평가 요소 ①</span>
+            <span className="font-semibold text-sky-700">교사확인 · 평가 및 갤러리 인증</span>
             <span aria-hidden="true">·</span>
             <span>
               {backendMode === 'checking'
@@ -246,10 +332,10 @@ export default function TeacherReview({
             </span>
           </div>
           <h1 className="mt-1.5 text-xl font-bold text-slate-900 sm:text-2xl">
-            1차시 앱 기획서 교사 확인
+            교사 확인 및 갤러리 인증 관리
           </h1>
           <p className="mt-1 text-sm text-slate-600">
-            학생들의 비공개 응답을 보호하기 위해 교사 로그인 후에만 제출된 앱 기획서를 열람할 수 있습니다.
+            교사 로그인 후 1차시 앱 기획서 응답을 열람·평가하고, 학생이 등록한 갤러리 작품을 확인·인증할 수 있습니다.
           </p>
         </div>
 
@@ -265,15 +351,17 @@ export default function TeacherReview({
               <span>응답 새로고침</span>
             </button>
 
-            <button
-              type="button"
-              onClick={handleExportCsv}
-              disabled={plans.length === 0}
-              className="inline-flex min-h-[44px] flex-1 items-center justify-center gap-1.5 rounded-lg bg-slate-900 px-4 py-2.5 text-xs font-medium text-white hover:bg-slate-800 disabled:opacity-40 transition-colors whitespace-nowrap shrink-0 cursor-pointer sm:flex-initial"
-            >
-              <Download className="h-4 w-4" />
-              <span>CSV 내보내기</span>
-            </button>
+            {activeTab === 'plans' && (
+              <button
+                type="button"
+                onClick={handleExportCsv}
+                disabled={plans.length === 0}
+                className="inline-flex min-h-[44px] flex-1 items-center justify-center gap-1.5 rounded-lg bg-slate-900 px-4 py-2.5 text-xs font-medium text-white hover:bg-slate-800 disabled:opacity-40 transition-colors whitespace-nowrap shrink-0 cursor-pointer sm:flex-initial"
+              >
+                <Download className="h-4 w-4" />
+                <span>CSV 내보내기</span>
+              </button>
+            )}
 
             <button
               type="button"
@@ -357,24 +445,30 @@ export default function TeacherReview({
         </div>
       ) : (
         <>
-          {/* Summary metrics */}
-          <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-3">
-            <div className="rounded-xl border border-slate-200 bg-white p-4">
-              <div className="text-xs font-medium text-slate-500">제출된 기획서</div>
-              <div className="mt-1 text-2xl font-bold text-slate-900 font-mono-tabular">{plans.length}건</div>
-            </div>
-            <div className="rounded-xl border border-slate-200 bg-white p-4">
-              <div className="text-xs font-medium text-slate-500">교사 확인 완료</div>
-              <div className="mt-1 text-2xl font-bold text-slate-900 font-mono-tabular">
-                {reviewedCount} / {plans.length}
-              </div>
-            </div>
-            <div className="rounded-xl border border-slate-200 bg-white p-4">
-              <div className="text-xs font-medium text-slate-500">최근 제출 시각</div>
-              <div className="mt-1 text-sm font-semibold text-slate-900 font-mono-tabular">
-                {plans[0] ? new Date(plans[0].updatedAt).toLocaleString('ko-KR') : '제출 내역 없음'}
-              </div>
-            </div>
+          <div className="mt-6 flex flex-wrap gap-2 border-b border-slate-200 pb-4">
+            <button
+              type="button"
+              onClick={() => setActiveTab('plans')}
+              className={`min-h-[44px] rounded-lg px-4 py-2 text-xs font-semibold transition-colors cursor-pointer sm:text-sm ${
+                activeTab === 'plans'
+                  ? 'bg-slate-900 text-white'
+                  : 'border border-slate-300 bg-white text-slate-700 hover:bg-slate-50'
+              }`}
+            >
+              1차시 앱 기획서 ({plans.length})
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab('gallery')}
+              className={`min-h-[44px] rounded-lg px-4 py-2 text-xs font-semibold transition-colors cursor-pointer sm:text-sm ${
+                activeTab === 'gallery'
+                  ? 'bg-slate-900 text-white'
+                  : 'border border-slate-300 bg-white text-slate-700 hover:bg-slate-50'
+              }`}
+            >
+              갤러리 인증 관리 ({galleryItems.length}
+              {pendingGalleryCount > 0 ? ` · 대기 ${pendingGalleryCount}` : ''})
+            </button>
           </div>
 
           {authError && (
@@ -382,6 +476,28 @@ export default function TeacherReview({
               {authError}
             </div>
           )}
+
+          {activeTab === 'plans' ? (
+            <>
+              {/* Summary metrics */}
+              <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-3">
+                <div className="rounded-xl border border-slate-200 bg-white p-4">
+                  <div className="text-xs font-medium text-slate-500">제출된 기획서</div>
+                  <div className="mt-1 text-2xl font-bold text-slate-900 font-mono-tabular">{plans.length}건</div>
+                </div>
+                <div className="rounded-xl border border-slate-200 bg-white p-4">
+                  <div className="text-xs font-medium text-slate-500">교사 확인 완료</div>
+                  <div className="mt-1 text-2xl font-bold text-slate-900 font-mono-tabular">
+                    {reviewedCount} / {plans.length}
+                  </div>
+                </div>
+                <div className="rounded-xl border border-slate-200 bg-white p-4">
+                  <div className="text-xs font-medium text-slate-500">최근 제출 시각</div>
+                  <div className="mt-1 text-sm font-semibold text-slate-900 font-mono-tabular">
+                    {plans[0] ? new Date(plans[0].updatedAt).toLocaleString('ko-KR') : '제출 내역 없음'}
+                  </div>
+                </div>
+              </div>
 
           {/* Search & Filter */}
           <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -655,6 +771,201 @@ export default function TeacherReview({
                       </div>
                     </div>
                   </div>
+                </div>
+              )}
+            </div>
+          )}
+            </>
+          ) : (
+            <div className="mt-6">
+              {/* Gallery summary metrics */}
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+                <div className="rounded-xl border border-slate-200 bg-white p-4">
+                  <div className="text-xs font-medium text-slate-500">전체 등록 신청</div>
+                  <div className="mt-1 text-2xl font-bold text-slate-900 font-mono-tabular">
+                    {galleryItems.length}건
+                  </div>
+                </div>
+                <div className="rounded-xl border border-slate-200 bg-white p-4">
+                  <div className="text-xs font-medium text-slate-500">승인 대기</div>
+                  <div className="mt-1 text-2xl font-bold text-amber-700 font-mono-tabular">
+                    {pendingGalleryCount}건
+                  </div>
+                </div>
+                <div className="rounded-xl border border-slate-200 bg-white p-4">
+                  <div className="text-xs font-medium text-slate-500">갤러리 게시 완료</div>
+                  <div className="mt-1 text-2xl font-bold text-emerald-700 font-mono-tabular">
+                    {approvedGalleryCount}건
+                  </div>
+                </div>
+              </div>
+
+              {/* Gallery search & filter */}
+              <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div className="relative flex-1 sm:max-w-md">
+                  <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                  <input
+                    type="text"
+                    value={gallerySearch}
+                    onChange={(e) => setGallerySearch(e.target.value)}
+                    placeholder="학번, 이름(별칭), 소개글, URL로 검색"
+                    className="min-h-[44px] w-full rounded-lg border border-slate-300 bg-white py-2.5 pl-9 pr-3 text-base text-slate-900 placeholder:text-slate-400 focus:border-sky-600 focus:outline-none focus:ring-2 focus:ring-sky-600/20 sm:text-sm"
+                  />
+                </div>
+
+                <select
+                  value={galleryStatusFilter}
+                  onChange={(e) => setGalleryStatusFilter(e.target.value as 'all' | GalleryStatus)}
+                  aria-label="갤러리 인증 상태 필터"
+                  className="min-h-[44px] rounded-lg border border-slate-300 bg-white px-3.5 py-2.5 text-base text-slate-700 focus:border-sky-600 focus:outline-none sm:text-sm"
+                >
+                  <option value="all">상태: 전체</option>
+                  <option value="pending">승인 대기</option>
+                  <option value="approved">게시 완료</option>
+                  <option value="rejected">보류</option>
+                </select>
+              </div>
+
+              {galleryNotice && (
+                <div
+                  role={galleryNotice.kind === 'err' ? 'alert' : 'status'}
+                  className={`mt-4 flex items-start gap-2 rounded-lg border px-4 py-3 text-xs sm:text-sm ${
+                    galleryNotice.kind === 'ok'
+                      ? 'border-emerald-200 bg-emerald-50 text-emerald-900'
+                      : 'border-red-200 bg-red-50 text-red-800'
+                  }`}
+                >
+                  {galleryNotice.kind === 'ok' && <Check className="mt-0.5 h-4 w-4 shrink-0 text-emerald-700" />}
+                  <span>{galleryNotice.text}</span>
+                </div>
+              )}
+
+              {loading ? (
+                <div className="mt-6 rounded-xl border border-slate-200 bg-white p-10 text-center text-sm text-slate-500">
+                  갤러리 신청 목록을 불러오는 중입니다...
+                </div>
+              ) : filteredGalleryItems.length === 0 ? (
+                <div className="mt-6 rounded-xl border border-slate-200 bg-white p-8 text-center sm:p-12">
+                  <p className="text-sm font-medium text-slate-800">표시할 갤러리 등록 신청이 없습니다.</p>
+                  <p className="mt-1.5 text-xs leading-relaxed text-slate-500">
+                    학생이 갤러리 메뉴에서 본인 웹페이지를 등록하면 이곳에서 인증 및 게시 여부를 결정할 수 있습니다.
+                  </p>
+                </div>
+              ) : (
+                <div className="mt-6 space-y-4">
+                  {filteredGalleryItems.map((item) => {
+                    const statusMeta = GALLERY_STATUS_META[item.status];
+                    const busy = busyGalleryId === item.id;
+                    return (
+                      <article
+                        key={item.id}
+                        className="rounded-xl border border-slate-200 bg-white p-5 sm:p-6"
+                      >
+                        <div className="flex flex-wrap items-start justify-between gap-3 border-b border-slate-100 pb-3.5">
+                          <div>
+                            <div className="flex flex-wrap items-center gap-2 text-xs">
+                              <span className={`font-semibold ${statusMeta.textClass}`}>{statusMeta.label}</span>
+                              <span aria-hidden="true" className="text-slate-300">
+                                ·
+                              </span>
+                              <span className="font-mono-tabular font-semibold text-slate-800">{item.studentId}</span>
+                              <span aria-hidden="true" className="text-slate-300">
+                                ·
+                              </span>
+                              <span className="font-semibold text-slate-900">{item.studentName}</span>
+                              <span aria-hidden="true" className="text-slate-300">
+                                ·
+                              </span>
+                              <span className="font-mono-tabular text-slate-500">
+                                {new Date(item.updatedAt).toLocaleString('ko-KR')}
+                              </span>
+                            </div>
+
+                            <a
+                              href={item.appUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="mt-2 inline-flex min-h-[36px] items-center gap-1.5 text-xs font-medium text-sky-700 hover:underline break-all font-mono-tabular"
+                            >
+                              <span>{item.appUrl}</span>
+                              <ExternalLink className="h-3.5 w-3.5 shrink-0" />
+                            </a>
+                          </div>
+
+                          <div className="flex flex-wrap items-center gap-2">
+                            {item.status !== 'approved' && (
+                              <button
+                                type="button"
+                                disabled={busy}
+                                onClick={() => handleGalleryStatusChange(item.id, 'approved')}
+                                className="inline-flex min-h-[44px] items-center gap-1.5 rounded-lg bg-sky-700 px-3.5 py-2 text-xs font-semibold text-white hover:bg-sky-800 disabled:opacity-50 transition-colors cursor-pointer whitespace-nowrap"
+                              >
+                                <Check className="h-3.5 w-3.5" />
+                                <span>인증 · 게시</span>
+                              </button>
+                            )}
+
+                            {item.status !== 'rejected' && (
+                              <button
+                                type="button"
+                                disabled={busy}
+                                onClick={() => handleGalleryStatusChange(item.id, 'rejected')}
+                                className="min-h-[44px] rounded-lg border border-slate-300 bg-white px-3.5 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50 transition-colors cursor-pointer whitespace-nowrap"
+                              >
+                                보류
+                              </button>
+                            )}
+
+                            {item.status !== 'pending' && (
+                              <button
+                                type="button"
+                                disabled={busy}
+                                onClick={() => handleGalleryStatusChange(item.id, 'pending')}
+                                className="min-h-[44px] rounded-lg border border-slate-300 bg-white px-3.5 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50 transition-colors cursor-pointer whitespace-nowrap"
+                              >
+                                대기 전환
+                              </button>
+                            )}
+
+                            {confirmDeleteGalleryId === item.id ? (
+                              <div className="flex items-center gap-1.5">
+                                <button
+                                  type="button"
+                                  disabled={busy}
+                                  onClick={() => handleDeleteGalleryItem(item.id)}
+                                  className="min-h-[44px] rounded-lg bg-red-600 px-3 py-2 text-xs font-medium text-white hover:bg-red-700 disabled:opacity-50 cursor-pointer whitespace-nowrap"
+                                >
+                                  삭제 확인
+                                </button>
+                                <button
+                                  type="button"
+                                  disabled={busy}
+                                  onClick={() => setConfirmDeleteGalleryId(null)}
+                                  className="min-h-[44px] rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50 cursor-pointer whitespace-nowrap"
+                                >
+                                  취소
+                                </button>
+                              </div>
+                            ) : (
+                              <button
+                                type="button"
+                                disabled={busy}
+                                onClick={() => setConfirmDeleteGalleryId(item.id)}
+                                className="inline-flex min-h-[44px] items-center gap-1 rounded-lg border border-slate-200 px-3 py-2 text-xs text-slate-500 hover:border-red-200 hover:text-red-700 disabled:opacity-50 transition-colors cursor-pointer whitespace-nowrap"
+                              >
+                                <Trash2 className="h-4 w-4" />
+                                <span>삭제</span>
+                              </button>
+                            )}
+                          </div>
+                        </div>
+
+                        <p className="mt-3.5 whitespace-pre-wrap text-sm leading-relaxed text-slate-800">
+                          {item.intro}
+                        </p>
+                      </article>
+                    );
+                  })}
                 </div>
               )}
             </div>

@@ -49,3 +49,24 @@ export interface AppPlanInput {
   programmingPrinciples: string;
   safetyChecked: boolean;
 }
+
+export type GalleryStatus = 'pending' | 'approved' | 'rejected';
+
+export interface GalleryItem {
+  id: string;
+  studentId: string;
+  studentName: string;
+  appUrl: string;
+  intro: string;
+  status: GalleryStatus;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface GalleryInput {
+  studentId: string;
+  studentName: string;
+  appUrl: string;
+  intro: string;
+}
+

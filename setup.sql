@@ -2,3 +2,5 @@ CREATE TABLE IF NOT EXISTS app_plans (id TEXT PRIMARY KEY, grade TEXT NOT NULL, 
 CREATE INDEX IF NOT EXISTS idx_app_plans_updated_at ON app_plans(updated_at DESC);
 CREATE TABLE IF NOT EXISTS teacher_sessions (token_hash TEXT PRIMARY KEY, created_at TEXT NOT NULL, expires_at TEXT NOT NULL);
 CREATE INDEX IF NOT EXISTS idx_teacher_sessions_expires_at ON teacher_sessions(expires_at);
+CREATE TABLE IF NOT EXISTS gallery_items (id TEXT PRIMARY KEY, student_id TEXT NOT NULL, student_name TEXT NOT NULL, app_url TEXT NOT NULL, intro TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending', created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
+CREATE INDEX IF NOT EXISTS idx_gallery_items_status_updated ON gallery_items(status, updated_at DESC);

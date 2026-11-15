@@ -41,6 +41,17 @@ interface AppPlanRow {
   updated_at: string;
 }
 
+interface GalleryRow {
+  id: string;
+  student_id: string;
+  student_name: string;
+  app_url: string;
+  intro: string;
+  status: string;
+  created_at: string;
+  updated_at: string;
+}
+
 const SESSION_COOKIE_NAME = 'classroom_teacher_session';
 const SESSION_TTL_SECONDS = 60 * 60 * 12;
 
@@ -54,6 +65,7 @@ const VALID_SOURCES = new Set([
 ]);
 
 const VALID_RUBRIC = new Set(['미확인', '상', '중', '하']);
+const VALID_GALLERY_STATUS = new Set(['pending', 'approved', 'rejected']);
 
 function jsonResponse(data: unknown, status = 200, extraHeaders?: Record<string, string>): Response {
   return new Response(JSON.stringify(data), {
@@ -153,6 +165,19 @@ function mapRowToPlan(row: AppPlanRow) {
   };
 }
 
+function mapRowToGalleryItem(row: GalleryRow) {
+  return {
+    id: row.id,
+    studentId: row.student_id,
+    studentName: row.student_name,
+    appUrl: row.app_url,
+    intro: row.intro,
+    status: row.status,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
 async function getActiveTeacherSessionHash(request: Request, env: Env): Promise<string | null> {
   if (!env.DB) return null;
   const cookies = parseCookies(request.headers.get('Cookie'));
@@ -236,6 +261,50 @@ function validatePlanBody(body: unknown) {
   };
 }
 
+function validateGalleryBody(body: unknown) {
+  if (!body || typeof body !== 'object') {
+    return { ok: false as const, error: '올바른 JSON 요청 형식이 아닙니다.' };
+  }
+  const raw = body as Record<string, unknown>;
+
+  const studentId = sanitizeText(raw.studentId, 30);
+  const studentName = sanitizeText(raw.studentName, 40);
+  const appUrlRaw = sanitizeText(raw.appUrl, 500);
+  const intro = sanitizeText(raw.intro, 500);
+
+  if (!studentId || !studentName) {
+    return { ok: false as const, error: '학번과 이름(또는 가상 별칭)을 모두 입력해 주세요.' };
+  }
+  if (!appUrlRaw) {
+    return { ok: false as const, error: '작성한 웹페이지 URL을 입력해 주세요.' };
+  }
+
+  let parsedUrl: URL;
+  try {
+    parsedUrl = new URL(appUrlRaw);
+  } catch {
+    return { ok: false as const, error: 'https:// 또는 http://로 시작하는 올바른 URL 형식을 입력해 주세요.' };
+  }
+
+  if (parsedUrl.protocol !== 'https:' && parsedUrl.protocol !== 'http:') {
+    return { ok: false as const, error: 'URL은 https:// 또는 http:// 주소만 등록할 수 있습니다.' };
+  }
+
+  if (!intro) {
+    return { ok: false as const, error: '작품 소개글을 입력해 주세요.' };
+  }
+
+  return {
+    ok: true as const,
+    data: {
+      studentId,
+      studentName,
+      appUrl: parsedUrl.toString(),
+      intro,
+    },
+  };
+}
+
 async function handleApiRequest(request: Request, env: Env, url: URL): Promise<Response> {
   const path = url.pathname;
   const method = request.method.toUpperCase();
@@ -248,6 +317,7 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
     try {
       await env.DB.prepare('SELECT 1 FROM app_plans LIMIT 1').first();
       await env.DB.prepare('SELECT 1 FROM teacher_sessions LIMIT 1').first();
+      await env.DB.prepare('SELECT 1 FROM gallery_items LIMIT 1').first();
       return jsonResponse({ ok: true, dbReady: true });
     } catch {
       return jsonResponse(
@@ -336,6 +406,151 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
       200,
       { 'Set-Cookie': buildCookieHeader('', 0, url) },
     );
+  }
+
+  // Public gallery: returns ONLY teacher-approved items
+  if (path === '/api/gallery' && method === 'GET') {
+    try {
+      const { results } = await env.DB.prepare(
+        'SELECT id, student_id, student_name, app_url, intro, status, created_at, updated_at FROM gallery_items WHERE status = ? ORDER BY updated_at DESC LIMIT 200',
+      )
+        .bind('approved')
+        .all<GalleryRow>();
+
+      return jsonResponse({ items: results.map(mapRowToGalleryItem) });
+    } catch {
+      return jsonResponse({ error: '갤러리 목록을 불러오지 못했습니다. D1 setup.sql을 확인해 주세요.' }, 500);
+    }
+  }
+
+  // Student gallery submission: always created with status = 'pending'
+  if (path === '/api/gallery' && method === 'POST') {
+    let body: unknown;
+    try {
+      body = await request.json();
+    } catch {
+      return jsonResponse({ error: '올바른 JSON 요청 본문이 아닙니다.' }, 400);
+    }
+
+    const parsed = validateGalleryBody(body);
+    if (!parsed.ok) {
+      return jsonResponse({ error: parsed.error }, 400);
+    }
+
+    const id = crypto.randomUUID();
+    const nowIso = new Date().toISOString();
+    const d = parsed.data;
+
+    try {
+      await env.DB.prepare(
+        'INSERT INTO gallery_items (id, student_id, student_name, app_url, intro, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+      )
+        .bind(id, d.studentId, d.studentName, d.appUrl, d.intro, 'pending', nowIso, nowIso)
+        .run();
+
+      return jsonResponse(
+        {
+          item: {
+            id,
+            ...d,
+            status: 'pending',
+            createdAt: nowIso,
+            updatedAt: nowIso,
+          },
+        },
+        201,
+      );
+    } catch {
+      return jsonResponse(
+        { error: '갤러리 등록 저장에 실패했습니다. D1 setup.sql 적용 여부를 확인해 주세요.' },
+        500,
+      );
+    }
+  }
+
+  // Teacher gallery moderation endpoints
+  if (path === '/api/teacher/gallery' && method === 'GET') {
+    const sessionHash = await getActiveTeacherSessionHash(request, env);
+    if (!sessionHash) {
+      return jsonResponse({ error: '교사 로그인이 필요합니다.' }, 401);
+    }
+
+    try {
+      const { results } = await env.DB.prepare(
+        'SELECT id, student_id, student_name, app_url, intro, status, created_at, updated_at FROM gallery_items ORDER BY updated_at DESC LIMIT 500',
+      ).all<GalleryRow>();
+
+      return jsonResponse({ items: results.map(mapRowToGalleryItem) });
+    } catch {
+      return jsonResponse({ error: '갤러리 신청 목록을 불러오지 못했습니다.' }, 500);
+    }
+  }
+
+  const teacherGalleryMatch = path.match(/^\/api\/teacher\/gallery\/([a-zA-Z0-9-]+)$/);
+  if (teacherGalleryMatch && method === 'PATCH') {
+    const sessionHash = await getActiveTeacherSessionHash(request, env);
+    if (!sessionHash) {
+      return jsonResponse({ error: '교사 로그인이 필요합니다.' }, 401);
+    }
+
+    let body: unknown;
+    try {
+      body = await request.json();
+    } catch {
+      return jsonResponse({ error: '올바른 JSON 요청 본문이 아닙니다.' }, 400);
+    }
+
+    const status = sanitizeText((body as Record<string, unknown>)?.status, 20);
+    if (!VALID_GALLERY_STATUS.has(status)) {
+      return jsonResponse({ error: '유효한 상태(pending, approved, rejected)를 선택해 주세요.' }, 400);
+    }
+
+    const itemId = teacherGalleryMatch[1];
+    const nowIso = new Date().toISOString();
+
+    try {
+      const res = await env.DB.prepare(
+        'UPDATE gallery_items SET status = ?, updated_at = ? WHERE id = ?',
+      )
+        .bind(status, nowIso, itemId)
+        .run();
+
+      if (!res.meta?.changes) {
+        return jsonResponse({ error: '해당 갤러리 항목을 찾을 수 없습니다.' }, 404);
+      }
+
+      const row = await env.DB.prepare(
+        'SELECT id, student_id, student_name, app_url, intro, status, created_at, updated_at FROM gallery_items WHERE id = ?',
+      )
+        .bind(itemId)
+        .first<GalleryRow>();
+
+      if (!row) {
+        return jsonResponse({ error: '해당 갤러리 항목을 찾을 수 없습니다.' }, 404);
+      }
+
+      return jsonResponse({ item: mapRowToGalleryItem(row) });
+    } catch {
+      return jsonResponse({ error: '갤러리 인증 상태를 변경하지 못했습니다.' }, 500);
+    }
+  }
+
+  if (teacherGalleryMatch && method === 'DELETE') {
+    const sessionHash = await getActiveTeacherSessionHash(request, env);
+    if (!sessionHash) {
+      return jsonResponse({ error: '교사 로그인이 필요합니다.' }, 401);
+    }
+
+    const itemId = teacherGalleryMatch[1];
+    try {
+      const res = await env.DB.prepare('DELETE FROM gallery_items WHERE id = ?').bind(itemId).run();
+      if (!res.meta?.changes) {
+        return jsonResponse({ error: '삭제할 갤러리 항목을 찾을 수 없습니다.' }, 404);
+      }
+      return jsonResponse({ ok: true });
+    } catch {
+      return jsonResponse({ error: '갤러리 항목 삭제 중 오류가 발생했습니다.' }, 500);
+    }
   }
 
   if (path === '/api/plans' && method === 'POST') {
