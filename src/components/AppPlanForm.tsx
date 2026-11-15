@@ -1,7 +1,8 @@
 import { useState, type FormEvent } from 'react';
-import { ArrowLeft, CheckCircle2, Clock, RotateCcw, Send } from 'lucide-react';
+import { ArrowLeft, Check, CheckCircle2, Clock, Copy, RotateCcw, Send } from 'lucide-react';
 import type { AppPlanInput, AppPlanSubmission } from '../types/lesson';
 import { submitPlanToApi, type BackendMode } from '../services/planApi';
+import { buildPromptDraft } from '../utils/promptDraft';
 
 interface AppPlanFormProps {
   form: AppPlanInput;
@@ -38,6 +39,9 @@ export default function AppPlanForm({
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [missingDiscovery, setMissingDiscovery] = useState(false);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [copiedDraft, setCopiedDraft] = useState(false);
+
+  const promptDraftText = buildPromptDraft(form);
 
   const discoveryComplete =
     form.grade.trim().length > 0 &&
@@ -89,6 +93,10 @@ export default function AppPlanForm({
       setErrorMessage('앱 기획서 4가지 항목(기능, 저장 데이터, 제약사항, 프로그래밍 원리)을 모두 작성해 주세요.');
       return;
     }
+    if (!form.finalPrompt.trim()) {
+      setErrorMessage('프롬프트 완성본을 작성해 주세요.');
+      return;
+    }
     if (!form.safetyChecked) {
       setErrorMessage('디지털 안전 약속 확인 체크박스를 선택해 주세요.');
       return;
@@ -96,7 +104,10 @@ export default function AppPlanForm({
 
     setSubmitting(true);
     try {
-      const result = await submitPlanToApi(form);
+      const result = await submitPlanToApi({
+        ...form,
+        promptDraft: promptDraftText,
+      });
       if (result.connected && result.ok && result.plan) {
         onBackendModeChange('ready');
         onPlanSaved(result.plan);
@@ -129,7 +140,7 @@ export default function AppPlanForm({
       <div className="flex flex-wrap items-end justify-between gap-4 border-b border-slate-300 pb-5">
         <div>
           <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 font-mono-tabular text-xs font-semibold text-slate-600">
-            <span className="text-blue-700">1차시 · 앱 기획서</span>
+            <span className="text-blue-700">2차시 · 앱 기획서</span>
             <span aria-hidden="true">·</span>
             <span>
               {backendMode === 'checking'
@@ -303,6 +314,74 @@ export default function AppPlanForm({
                 className="mt-2 w-full rounded-lg border border-slate-300 bg-white px-3.5 py-3 text-base text-slate-900 placeholder:text-slate-400 focus:border-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-600/20 sm:text-sm"
               />
             </div>
+          </div>
+        </div>
+
+        {/* 사용할 프롬프트 초안 */}
+        <div className="rounded-xl border border-slate-300 bg-white p-4 sm:p-6 space-y-4">
+          <div className="flex flex-wrap items-start justify-between gap-3 border-b border-slate-100 pb-3">
+            <div>
+              <div className="text-xs font-medium text-slate-500">03. 프롬프트 구조화</div>
+              <h2 className="mt-0.5 text-base font-bold text-slate-900">사용할 프롬프트 초안</h2>
+              <p className="mt-1 text-xs leading-relaxed text-slate-600">
+                문제탐색과 앱 기획서에서 입력한 모든 내용을 ‘제목: 입력한 내용’ 형태로 자동 정리한 초안입니다.
+              </p>
+            </div>
+
+            {promptDraftText && (
+              <button
+                type="button"
+                onClick={async () => {
+                  try {
+                    await navigator.clipboard.writeText(promptDraftText);
+                    setCopiedDraft(true);
+                    window.setTimeout(() => setCopiedDraft(false), 1800);
+                  } catch {
+                    // Ignore clipboard permission errors
+                  }
+                }}
+                className="inline-flex min-h-[40px] items-center gap-1.5 rounded-lg border border-slate-300 bg-slate-50 px-3.5 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-100 transition-colors cursor-pointer whitespace-nowrap shrink-0"
+              >
+                {copiedDraft ? <Check className="h-3.5 w-3.5 text-emerald-700" /> : <Copy className="h-3.5 w-3.5" />}
+                <span>{copiedDraft ? '초안 복사됨' : '초안 복사'}</span>
+              </button>
+            )}
+          </div>
+
+          {promptDraftText ? (
+            <pre className="whitespace-pre-wrap break-words rounded-lg border border-slate-200 bg-slate-50 p-4 font-sans text-sm leading-relaxed text-slate-800">
+              {promptDraftText}
+            </pre>
+          ) : (
+            <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 px-4 py-6 text-center text-xs leading-relaxed text-slate-500 sm:text-sm">
+              문제탐색과 앱 기획서의 각 항목을 입력하면 이곳에 번호가 매겨진 프롬프트 초안이 자동으로 나타납니다.
+            </div>
+          )}
+        </div>
+
+        {/* 프롬프트 완성본 */}
+        <div className="rounded-xl border border-slate-300 bg-white p-4 sm:p-6 space-y-3">
+          <div className="border-b border-slate-100 pb-3">
+            <div className="text-xs font-medium text-slate-500">04. 최종 프롬프트 작성</div>
+            <label htmlFor="finalPrompt" className="mt-0.5 block text-base font-bold text-slate-900">
+              프롬프트 완성본
+            </label>
+            <p className="mt-1 text-xs leading-relaxed text-slate-600 sm:text-sm">
+              프롬프트 완성본: 프롬프트 초안을 수정하여 다시 완성하세요.
+            </p>
+          </div>
+
+          <textarea
+            id="finalPrompt"
+            rows={7}
+            maxLength={6000}
+            value={form.finalPrompt}
+            onChange={(e) => handleFieldChange('finalPrompt', e.target.value)}
+            placeholder="위의 프롬프트 초안을 참고해 수정·보완한 최종 프롬프트를 입력해 주세요."
+            className="w-full rounded-lg border border-slate-300 bg-white px-3.5 py-3 text-base text-slate-900 placeholder:text-slate-400 focus:border-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-600/20 sm:text-sm"
+          />
+          <div className="text-right text-[11px] text-slate-400 font-mono-tabular">
+            {form.finalPrompt.length} / 6000
           </div>
         </div>
 

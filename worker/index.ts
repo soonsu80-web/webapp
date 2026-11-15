@@ -37,6 +37,8 @@ interface AppPlanRow {
   safety_checked: number;
   rubric_level: string;
   teacher_note: string;
+  prompt_draft?: string | null;
+  final_prompt?: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -159,6 +161,8 @@ function mapRowToPlan(row: AppPlanRow) {
     safetyChecked: row.safety_checked === 1,
     rubricLevel: row.rubric_level,
     teacherNote: row.teacher_note,
+    promptDraft: row.prompt_draft ?? '',
+    finalPrompt: row.final_prompt ?? '',
     storageState: 'synced' as const,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -216,6 +220,8 @@ function validatePlanBody(body: unknown) {
   const dataToStore = sanitizeText(raw.dataToStore, 1500);
   const constraints = sanitizeText(raw.constraints, 1500);
   const programmingPrinciples = sanitizeText(raw.programmingPrinciples, 1500);
+  const promptDraft = sanitizeText(raw.promptDraft, 12000);
+  const finalPrompt = sanitizeText(raw.finalPrompt, 6000);
   const safetyChecked = raw.safetyChecked === true;
 
   if (!grade || !classRoom || !studentName) {
@@ -235,6 +241,9 @@ function validatePlanBody(body: unknown) {
       ok: false as const,
       error: '앱 기획서 4가지 항목(기능, 저장 데이터, 제약사항, 프로그래밍 원리)을 모두 입력해 주세요.',
     };
+  }
+  if (!finalPrompt) {
+    return { ok: false as const, error: '프롬프트 완성본을 작성해 주세요.' };
   }
   if (!safetyChecked) {
     return { ok: false as const, error: '디지털 안전 약속 확인 체크를 완료해 주세요.' };
@@ -256,6 +265,8 @@ function validatePlanBody(body: unknown) {
       dataToStore,
       constraints,
       programmingPrinciples,
+      promptDraft,
+      finalPrompt,
       safetyChecked,
     },
   };
@@ -318,6 +329,7 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
       await env.DB.prepare('SELECT 1 FROM app_plans LIMIT 1').first();
       await env.DB.prepare('SELECT 1 FROM teacher_sessions LIMIT 1').first();
       await env.DB.prepare('SELECT 1 FROM gallery_items LIMIT 1').first();
+      await env.DB.prepare('SELECT 1 FROM app_plan_prompts LIMIT 1').first();
       return jsonResponse({ ok: true, dbReady: true });
     } catch {
       return jsonResponse(
@@ -597,6 +609,12 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
         )
         .run();
 
+      await env.DB.prepare(
+        'INSERT INTO app_plan_prompts (plan_id, prompt_draft, final_prompt, updated_at) VALUES (?, ?, ?, ?)',
+      )
+        .bind(id, d.promptDraft, d.finalPrompt, nowIso)
+        .run();
+
       return jsonResponse(
         {
           plan: {
@@ -627,7 +645,7 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
 
     try {
       const { results } = await env.DB.prepare(
-        'SELECT id, grade, class_room, student_name, discovery_source, problem_summary, urgency_reason, public_benefit_reason, inquiry_question, screen_composition, features_to_implement, data_to_store, constraints, programming_principles, safety_checked, rubric_level, teacher_note, created_at, updated_at FROM app_plans ORDER BY updated_at DESC LIMIT 500',
+        "SELECT a.id, a.grade, a.class_room, a.student_name, a.discovery_source, a.problem_summary, a.urgency_reason, a.public_benefit_reason, a.inquiry_question, a.screen_composition, a.features_to_implement, a.data_to_store, a.constraints, a.programming_principles, a.safety_checked, a.rubric_level, a.teacher_note, COALESCE(p.prompt_draft, '') AS prompt_draft, COALESCE(p.final_prompt, '') AS final_prompt, a.created_at, a.updated_at FROM app_plans a LEFT JOIN app_plan_prompts p ON p.plan_id = a.id ORDER BY a.updated_at DESC LIMIT 500",
       ).all<AppPlanRow>();
 
       return jsonResponse({ plans: results.map(mapRowToPlan) });
@@ -671,7 +689,7 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
       }
 
       const row = await env.DB.prepare(
-        'SELECT id, grade, class_room, student_name, discovery_source, problem_summary, urgency_reason, public_benefit_reason, inquiry_question, screen_composition, features_to_implement, data_to_store, constraints, programming_principles, safety_checked, rubric_level, teacher_note, created_at, updated_at FROM app_plans WHERE id = ?',
+        "SELECT a.id, a.grade, a.class_room, a.student_name, a.discovery_source, a.problem_summary, a.urgency_reason, a.public_benefit_reason, a.inquiry_question, a.screen_composition, a.features_to_implement, a.data_to_store, a.constraints, a.programming_principles, a.safety_checked, a.rubric_level, a.teacher_note, COALESCE(p.prompt_draft, '') AS prompt_draft, COALESCE(p.final_prompt, '') AS final_prompt, a.created_at, a.updated_at FROM app_plans a LEFT JOIN app_plan_prompts p ON p.plan_id = a.id WHERE a.id = ?",
       )
         .bind(planId)
         .first<AppPlanRow>();
@@ -695,6 +713,7 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
 
     const planId = deleteMatch[1];
     try {
+      await env.DB.prepare('DELETE FROM app_plan_prompts WHERE plan_id = ?').bind(planId).run();
       const res = await env.DB.prepare('DELETE FROM app_plans WHERE id = ?').bind(planId).run();
       if (!res.meta?.changes) {
         return jsonResponse({ error: '삭제할 응답을 찾을 수 없습니다.' }, 404);

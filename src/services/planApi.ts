@@ -144,7 +144,9 @@ export async function fetchTeacherPlans(): Promise<{
   }
 }
 
-export async function submitPlanToApi(input: AppPlanInput): Promise<{
+export async function submitPlanToApi(
+  input: AppPlanInput & { promptDraft?: string },
+): Promise<{
   connected: boolean;
   ok: boolean;
   plan?: AppPlanSubmission;

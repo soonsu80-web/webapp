@@ -39,6 +39,7 @@ const EMPTY_INPUT: AppPlanInput = {
   dataToStore: '',
   constraints: '',
   programmingPrinciples: '',
+  finalPrompt: '',
   safetyChecked: false,
 };
 
@@ -276,7 +277,7 @@ export default function App() {
 
       <footer className="border-t border-slate-300 bg-white">
         <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-4 px-4 py-5 text-xs text-slate-500 sm:px-6">
-          <span>코드를 읽고 다시 쓰는 바이브 코딩 프로젝트 · 고등학교 1학년 정보 (1차시)</span>
+          <span>코드를 읽고 다시 쓰는 바이브 코딩 프로젝트 · 고등학교 1학년 정보</span>
           <span>
             {backendMode === 'ready'
               ? '데이터 저장소 연결됨 (Cloudflare D1)'

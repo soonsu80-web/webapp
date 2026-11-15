@@ -25,6 +25,8 @@ export interface AppPlanSubmission {
   dataToStore: string;
   constraints: string;
   programmingPrinciples: string;
+  promptDraft?: string;
+  finalPrompt: string;
   safetyChecked: boolean;
   rubricLevel: RubricLevel;
   teacherNote: string;
@@ -47,6 +49,7 @@ export interface AppPlanInput {
   dataToStore: string;
   constraints: string;
   programmingPrinciples: string;
+  finalPrompt: string;
   safetyChecked: boolean;
 }
 

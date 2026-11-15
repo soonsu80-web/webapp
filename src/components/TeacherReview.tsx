@@ -10,6 +10,7 @@ import {
   updateTeacherGalleryStatus,
   type BackendMode,
 } from '../services/planApi';
+import { buildPromptDraft } from '../utils/promptDraft';
 
 const RUBRIC_DESCRIPTIONS: { level: Exclude<RubricLevel, '미확인'>; desc: string }[] = [
   {
@@ -261,7 +262,7 @@ export default function TeacherReview({
     const headers = [
       '학년',
       '반',
-      '성명(별칭)',
+      '성명',
       '탐색 경로',
       '선정한 실생활 문제',
       '시급성 이유',
@@ -272,6 +273,8 @@ export default function TeacherReview({
       '저장할 데이터',
       '제약사항',
       '적용할 프로그래밍 원리',
+      '사용할 프롬프트 초안',
+      '프롬프트 완성본',
       '안전 약속 확인',
       '평가 확인(상/중/하)',
       '교사 메모',
@@ -291,6 +294,8 @@ export default function TeacherReview({
       p.dataToStore,
       p.constraints,
       p.programmingPrinciples,
+      p.promptDraft?.trim() || buildPromptDraft(p),
+      p.finalPrompt || '',
       p.safetyChecked ? '확인' : '미확인',
       p.rubricLevel,
       p.teacherNote,
@@ -303,7 +308,7 @@ export default function TeacherReview({
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.download = `1차시_앱기획서_확인목록_${new Date().toISOString().slice(0, 10)}.csv`;
+    link.download = `2차시_앱기획서_확인목록_${new Date().toISOString().slice(0, 10)}.csv`;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -335,7 +340,7 @@ export default function TeacherReview({
             교사 확인 및 갤러리 인증 관리
           </h1>
           <p className="mt-1.5 text-sm text-slate-600">
-            교사 로그인 후 1차시 앱 기획서 응답을 열람·평가하고, 학생이 등록한 갤러리 작품을 확인·인증할 수 있습니다.
+            교사 로그인 후 2차시 앱 기획서·프롬프트 완성본 응답을 열람·평가하고, 학생이 등록한 갤러리 작품을 확인·인증할 수 있습니다.
           </p>
         </div>
 
@@ -455,7 +460,7 @@ export default function TeacherReview({
                   : 'border border-slate-300 bg-white text-slate-700 hover:bg-slate-50'
               }`}
             >
-              1차시 앱 기획서 ({plans.length})
+              2차시 앱 기획서 ({plans.length})
             </button>
             <button
               type="button"
@@ -507,7 +512,7 @@ export default function TeacherReview({
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="학년·반·성명(별칭), 문제 내용, 기능으로 검색"
+                placeholder="학년·반·성명, 문제 내용, 기능으로 검색"
                 className="min-h-[44px] w-full rounded-lg border border-slate-300 bg-white py-2.5 pl-9 pr-3 text-base text-slate-900 placeholder:text-slate-400 focus:border-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-600/20 sm:text-sm"
               />
             </div>
@@ -693,6 +698,24 @@ export default function TeacherReview({
                           <div className="text-xs font-medium text-slate-500">적용할 프로그래밍 원리</div>
                           <p className="mt-1 whitespace-pre-wrap text-xs leading-relaxed text-slate-800">
                             {selectedPlan.programmingPrinciples}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="border-t border-slate-200 pt-5">
+                      <h3 className="text-xs font-semibold text-blue-700">4. 사용할 프롬프트 초안 및 프롬프트 완성본</h3>
+                      <div className="mt-3 space-y-4">
+                        <div>
+                          <div className="text-xs font-medium text-slate-500">사용할 프롬프트 초안</div>
+                          <pre className="mt-1.5 whitespace-pre-wrap break-words rounded-lg border border-slate-200 bg-slate-50 p-3.5 font-sans text-xs leading-relaxed text-slate-700">
+                            {selectedPlan.promptDraft?.trim() || buildPromptDraft(selectedPlan)}
+                          </pre>
+                        </div>
+                        <div>
+                          <div className="text-xs font-medium text-slate-500">프롬프트 완성본</div>
+                          <p className="mt-1.5 whitespace-pre-wrap rounded-lg border border-slate-200 bg-white p-3.5 text-sm leading-relaxed text-slate-900">
+                            {selectedPlan.finalPrompt?.trim() || '작성된 프롬프트 완성본이 없습니다.'}
                           </p>
                         </div>
                       </div>
