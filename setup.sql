@@ -6,3 +6,6 @@ CREATE TABLE IF NOT EXISTS gallery_items (id TEXT PRIMARY KEY, student_id TEXT N
 CREATE INDEX IF NOT EXISTS idx_gallery_items_status_updated ON gallery_items(status, updated_at DESC);
 CREATE TABLE IF NOT EXISTS app_plan_prompts (plan_id TEXT PRIMARY KEY, prompt_draft TEXT NOT NULL DEFAULT '', final_prompt TEXT NOT NULL DEFAULT '', updated_at TEXT NOT NULL);
 CREATE INDEX IF NOT EXISTS idx_app_plan_prompts_updated_at ON app_plan_prompts(updated_at DESC);
+CREATE TABLE IF NOT EXISTS app_revisions (id TEXT PRIMARY KEY, grade TEXT NOT NULL, class_room TEXT NOT NULL, student_name TEXT NOT NULL, before_image TEXT NOT NULL, before_code TEXT NOT NULL, after_code TEXT NOT NULL, after_image TEXT NOT NULL, reason_and_result TEXT NOT NULL, review_status TEXT NOT NULL DEFAULT '미확인', teacher_note TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
+CREATE INDEX IF NOT EXISTS idx_app_revisions_updated_at ON app_revisions(updated_at DESC);
+

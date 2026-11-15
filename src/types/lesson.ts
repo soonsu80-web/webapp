@@ -73,3 +73,30 @@ export interface GalleryInput {
   intro: string;
 }
 
+export type RevisionReviewStatus = '미확인' | '확인 완료' | '보완 필요';
+
+export interface CodeChangePair {
+  beforeCode: string;
+  afterCode: string;
+}
+
+export interface AppRevisionInput {
+  grade: string;
+  classRoom: string;
+  studentName: string;
+  beforeImage: string;
+  beforeCode: string;
+  afterCode: string;
+  afterImage: string;
+  reasonAndResult: string;
+}
+
+export interface AppRevisionSubmission extends AppRevisionInput {
+  id: string;
+  reviewStatus: RevisionReviewStatus;
+  teacherNote: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+

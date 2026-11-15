@@ -1,16 +1,26 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
-import { Check, Clock, Download, ExternalLink, Lock, LogOut, RefreshCw, Search, Trash2 } from 'lucide-react';
-import type { AppPlanSubmission, GalleryItem, GalleryStatus, RubricLevel } from '../types/lesson';
+import { Check, Clock, Download, ExternalLink, Lock, LogOut, RefreshCw, Search, Trash2, X, ZoomIn } from 'lucide-react';
+import type {
+  AppPlanSubmission,
+  AppRevisionSubmission,
+  GalleryItem,
+  GalleryStatus,
+  RevisionReviewStatus,
+  RubricLevel,
+} from '../types/lesson';
 import {
   deletePlanFromApi,
+  deleteRevisionFromApi,
   deleteTeacherGalleryItem,
   loginTeacher,
   logoutTeacher,
   saveTeacherReviewToApi,
+  saveTeacherRevisionReviewToApi,
   updateTeacherGalleryStatus,
   type BackendMode,
 } from '../services/planApi';
 import { buildPromptDraft } from '../utils/promptDraft';
+import { parseCodeChanges } from '../utils/revisionCodeBlocks';
 
 const RUBRIC_DESCRIPTIONS: { level: Exclude<RubricLevel, '미확인'>; desc: string }[] = [
   {
@@ -32,7 +42,7 @@ function escapeCsvCell(value: string): string {
   return `"${safe}"`;
 }
 
-function formatAuthorLabel(plan: AppPlanSubmission): string {
+function formatAuthorLabel(plan: { grade: string; classRoom: string; studentName: string }): string {
   const g = plan.grade.trim();
   const c = plan.classRoom.trim();
   const n = plan.studentName.trim();
@@ -45,6 +55,7 @@ interface TeacherReviewProps {
   backendMode: BackendMode;
   authenticated: boolean;
   plans: AppPlanSubmission[];
+  revisions: AppRevisionSubmission[];
   galleryItems: GalleryItem[];
   loading: boolean;
   authError: string | null;
@@ -53,11 +64,13 @@ interface TeacherReviewProps {
   onRefresh: () => void;
   onUpdatePlan: (updated: AppPlanSubmission) => void;
   onRemovePlan: (id: string) => void;
+  onUpdateRevision: (updated: AppRevisionSubmission) => void;
+  onRemoveRevision: (id: string) => void;
   onUpdateGalleryItem: (updated: GalleryItem) => void;
   onRemoveGalleryItem: (id: string) => void;
 }
 
-type TeacherTab = 'plans' | 'gallery';
+type TeacherTab = 'plans' | 'revisions' | 'gallery';
 
 const GALLERY_STATUS_META: Record<GalleryStatus, { label: string; textClass: string }> = {
   pending: { label: '승인 대기', textClass: 'text-amber-700' },
@@ -69,6 +82,7 @@ export default function TeacherReview({
   backendMode,
   authenticated,
   plans,
+  revisions,
   galleryItems,
   loading,
   authError,
@@ -77,6 +91,8 @@ export default function TeacherReview({
   onRefresh,
   onUpdatePlan,
   onRemovePlan,
+  onUpdateRevision,
+  onRemoveRevision,
   onUpdateGalleryItem,
   onRemoveGalleryItem,
 }: TeacherReviewProps) {
@@ -94,6 +110,16 @@ export default function TeacherReview({
   const [savingReview, setSavingReview] = useState(false);
   const [reviewNotice, setReviewNotice] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+
+  const [selectedRevisionId, setSelectedRevisionId] = useState<string | null>(null);
+  const [revisionSearch, setRevisionSearch] = useState('');
+  const [revisionStatusFilter, setRevisionStatusFilter] = useState<'all' | RevisionReviewStatus>('all');
+  const [revisionStatusDraft, setRevisionStatusDraft] = useState<RevisionReviewStatus>('미확인');
+  const [revisionNoteDraft, setRevisionNoteDraft] = useState('');
+  const [savingRevisionReview, setSavingRevisionReview] = useState(false);
+  const [revisionNotice, setRevisionNotice] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null);
+  const [confirmDeleteRevisionId, setConfirmDeleteRevisionId] = useState<string | null>(null);
+  const [zoomedImage, setZoomedImage] = useState<{ label: string; src: string } | null>(null);
 
   const [gallerySearch, setGallerySearch] = useState('');
   const [galleryStatusFilter, setGalleryStatusFilter] = useState<'all' | GalleryStatus>('all');
@@ -132,6 +158,39 @@ export default function TeacherReview({
       setConfirmDeleteId(null);
     }
   }, [selectedPlan]);
+
+  const filteredRevisions = useMemo(() => {
+    const q = revisionSearch.trim().toLowerCase();
+    return revisions.filter((rev) => {
+      const matchesStatus = revisionStatusFilter === 'all' || rev.reviewStatus === revisionStatusFilter;
+      const authorText = formatAuthorLabel(rev).toLowerCase();
+      const matchesQuery =
+        !q ||
+        authorText.includes(q) ||
+        rev.studentName.toLowerCase().includes(q) ||
+        rev.beforeCode.toLowerCase().includes(q) ||
+        rev.afterCode.toLowerCase().includes(q) ||
+        rev.reasonAndResult.toLowerCase().includes(q);
+      return matchesStatus && matchesQuery;
+    });
+  }, [revisions, revisionSearch, revisionStatusFilter]);
+
+  const selectedRevision = useMemo(() => {
+    if (selectedRevisionId) {
+      const exact = filteredRevisions.find((r) => r.id === selectedRevisionId);
+      if (exact) return exact;
+    }
+    return filteredRevisions[0] ?? null;
+  }, [filteredRevisions, selectedRevisionId]);
+
+  useEffect(() => {
+    if (selectedRevision) {
+      setRevisionStatusDraft(selectedRevision.reviewStatus);
+      setRevisionNoteDraft(selectedRevision.teacherNote);
+      setRevisionNotice(null);
+      setConfirmDeleteRevisionId(null);
+    }
+  }, [selectedRevision]);
 
   async function handleLoginSubmit(e: FormEvent) {
     e.preventDefault();
@@ -194,6 +253,47 @@ export default function TeacherReview({
       setSelectedId(null);
     } else {
       setReviewNotice({ kind: 'err', text: res.error || '응답 삭제에 실패했습니다.' });
+    }
+  }
+
+  async function handleSaveRevisionReview() {
+    if (!selectedRevision) return;
+    setSavingRevisionReview(true);
+    setRevisionNotice(null);
+
+    try {
+      const res = await saveTeacherRevisionReviewToApi(
+        selectedRevision.id,
+        revisionStatusDraft,
+        revisionNoteDraft,
+      );
+      if (res.unauthorized) {
+        onLoggedOut();
+        return;
+      }
+      if (res.ok && res.revision) {
+        onUpdateRevision(res.revision);
+        setRevisionNotice({ kind: 'ok', text: '3차시 수정하기 교사 확인 내용이 D1 저장소에 반영되었습니다.' });
+      } else {
+        setRevisionNotice({ kind: 'err', text: res.error || '교사 확인 저장에 실패했습니다.' });
+      }
+    } finally {
+      setSavingRevisionReview(false);
+    }
+  }
+
+  async function handleDeleteRevision(id: string) {
+    const res = await deleteRevisionFromApi(id);
+    if (res.unauthorized) {
+      onLoggedOut();
+      return;
+    }
+    if (res.ok) {
+      onRemoveRevision(id);
+      setConfirmDeleteRevisionId(null);
+      setSelectedRevisionId(null);
+    } else {
+      setRevisionNotice({ kind: 'err', text: res.error || '수정하기 기록 삭제에 실패했습니다.' });
     }
   }
 
@@ -315,7 +415,49 @@ export default function TeacherReview({
     URL.revokeObjectURL(url);
   }
 
+  function handleExportRevisionsCsv() {
+    const headers = [
+      '학년',
+      '반',
+      '성명',
+      '수정 전 코드',
+      '수정 후 코드',
+      '수정 이유 및 적용 결과',
+      '첫 화면 캡처 첨부',
+      '수정 후 화면 캡처 첨부',
+      '확인 상태',
+      '교사 피드백',
+      '작성 시각',
+    ];
+    const rows = revisions.map((r) => [
+      r.grade,
+      r.classRoom,
+      r.studentName,
+      r.beforeCode,
+      r.afterCode,
+      r.reasonAndResult,
+      r.beforeImage ? '첨부됨' : '미첨부',
+      r.afterImage ? '첨부됨' : '미첨부',
+      r.reviewStatus,
+      r.teacherNote,
+      new Date(r.updatedAt).toLocaleString('ko-KR'),
+    ]);
+
+    const csvContent =
+      '\uFEFF' + [headers, ...rows].map((row) => row.map((cell) => escapeCsvCell(String(cell))).join(',')).join('\r\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `3차시_수정하기_확인목록_${new Date().toISOString().slice(0, 10)}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  }
+
   const reviewedCount = plans.filter((p) => p.rubricLevel !== '미확인').length;
+  const reviewedRevisionsCount = revisions.filter((r) => r.reviewStatus !== '미확인').length;
   const pendingGalleryCount = galleryItems.filter((g) => g.status === 'pending').length;
   const approvedGalleryCount = galleryItems.filter((g) => g.status === 'approved').length;
 
@@ -340,7 +482,7 @@ export default function TeacherReview({
             교사 확인 및 갤러리 인증 관리
           </h1>
           <p className="mt-1.5 text-sm text-slate-600">
-            교사 로그인 후 2차시 앱 기획서·프롬프트 완성본 응답을 열람·평가하고, 학생이 등록한 갤러리 작품을 확인·인증할 수 있습니다.
+            교사 로그인 후 2차시 앱 기획서·프롬프트 완성본과 3차시 수정하기 기록(캡처 화면·수정 코드·적용 결과)을 열람하고, 갤러리 작품을 인증할 수 있습니다.
           </p>
         </div>
 
@@ -361,6 +503,18 @@ export default function TeacherReview({
                 type="button"
                 onClick={handleExportCsv}
                 disabled={plans.length === 0}
+                className="inline-flex min-h-[44px] flex-1 items-center justify-center gap-1.5 rounded-lg bg-slate-900 px-4 py-2.5 text-xs font-medium text-white hover:bg-slate-800 disabled:opacity-40 transition-colors whitespace-nowrap shrink-0 cursor-pointer sm:flex-initial"
+              >
+                <Download className="h-4 w-4" />
+                <span>CSV 내보내기</span>
+              </button>
+            )}
+
+            {activeTab === 'revisions' && (
+              <button
+                type="button"
+                onClick={handleExportRevisionsCsv}
+                disabled={revisions.length === 0}
                 className="inline-flex min-h-[44px] flex-1 items-center justify-center gap-1.5 rounded-lg bg-slate-900 px-4 py-2.5 text-xs font-medium text-white hover:bg-slate-800 disabled:opacity-40 transition-colors whitespace-nowrap shrink-0 cursor-pointer sm:flex-initial"
               >
                 <Download className="h-4 w-4" />
@@ -461,6 +615,17 @@ export default function TeacherReview({
               }`}
             >
               2차시 앱 기획서 ({plans.length})
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab('revisions')}
+              className={`min-h-[44px] rounded-lg px-4 py-2 text-xs font-semibold transition-colors cursor-pointer sm:text-sm ${
+                activeTab === 'revisions'
+                  ? 'bg-slate-900 text-white'
+                  : 'border border-slate-300 bg-white text-slate-700 hover:bg-slate-50'
+              }`}
+            >
+              3차시 수정하기 ({revisions.length})
             </button>
             <button
               type="button"
@@ -799,6 +964,378 @@ export default function TeacherReview({
             </div>
           )}
             </>
+          ) : activeTab === 'revisions' ? (
+            <>
+              {/* 3차시 수정하기 Summary metrics */}
+              <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-3">
+                <div className="rounded-xl border border-slate-200 bg-white p-4">
+                  <div className="text-xs font-medium text-slate-500">제출된 수정 기록</div>
+                  <div className="mt-1 text-2xl font-bold text-slate-900 font-mono-tabular">{revisions.length}건</div>
+                </div>
+                <div className="rounded-xl border border-slate-200 bg-white p-4">
+                  <div className="text-xs font-medium text-slate-500">교사 확인 완료</div>
+                  <div className="mt-1 text-2xl font-bold text-slate-900 font-mono-tabular">
+                    {reviewedRevisionsCount} / {revisions.length}
+                  </div>
+                </div>
+                <div className="rounded-xl border border-slate-200 bg-white p-4">
+                  <div className="text-xs font-medium text-slate-500">최근 제출 시각</div>
+                  <div className="mt-1 text-sm font-semibold text-slate-900 font-mono-tabular">
+                    {revisions[0] ? new Date(revisions[0].updatedAt).toLocaleString('ko-KR') : '제출 내역 없음'}
+                  </div>
+                </div>
+              </div>
+
+              {/* Search & Filter */}
+              <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div className="relative flex-1 sm:max-w-md">
+                  <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                  <input
+                    type="text"
+                    value={revisionSearch}
+                    onChange={(e) => setRevisionSearch(e.target.value)}
+                    placeholder="학년·반·성명, 수정 코드, 이유 및 결과로 검색"
+                    className="min-h-[44px] w-full rounded-lg border border-slate-300 bg-white py-2.5 pl-9 pr-3 text-base text-slate-900 placeholder:text-slate-400 focus:border-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-600/20 sm:text-sm"
+                  />
+                </div>
+
+                <select
+                  value={revisionStatusFilter}
+                  onChange={(e) => setRevisionStatusFilter(e.target.value as 'all' | RevisionReviewStatus)}
+                  aria-label="수정 기록 확인 상태 필터"
+                  className="min-h-[44px] rounded-lg border border-slate-300 bg-white px-3.5 py-2.5 text-base text-slate-700 focus:border-blue-700 focus:outline-none sm:text-sm"
+                >
+                  <option value="all">확인 상태: 전체</option>
+                  <option value="미확인">미확인</option>
+                  <option value="확인 완료">확인 완료</option>
+                  <option value="보완 필요">보완 필요</option>
+                </select>
+              </div>
+
+              {loading ? (
+                <div className="mt-6 rounded-xl border border-slate-200 bg-white p-10 text-center text-sm text-slate-500">
+                  3차시 수정하기 기록을 불러오는 중입니다...
+                </div>
+              ) : filteredRevisions.length === 0 ? (
+                <div className="mt-6 rounded-xl border border-slate-200 bg-white p-8 text-center sm:p-12">
+                  <p className="text-sm font-medium text-slate-800">표시할 3차시 수정하기 기록이 없습니다.</p>
+                  <p className="mt-1.5 text-xs leading-relaxed text-slate-500">
+                    학생이 수정하기 메뉴에서 화면 캡처와 수정 전·후 코드, 수정 이유를 제출하면 이곳에서 바로 확인할 수 있습니다.
+                  </p>
+                </div>
+              ) : (
+                <div className="mt-6 grid gap-6 lg:grid-cols-12 lg:items-start">
+                  {/* List */}
+                  <div className="divide-y divide-slate-200 overflow-hidden rounded-xl border border-slate-200 bg-white lg:col-span-4">
+                    {filteredRevisions.map((rev) => {
+                      const active = selectedRevision?.id === rev.id;
+                      return (
+                        <button
+                          key={rev.id}
+                          type="button"
+                          onClick={() => setSelectedRevisionId(rev.id)}
+                          className={`min-h-[60px] w-full px-4 py-3.5 text-left transition-colors cursor-pointer ${
+                            active ? 'bg-blue-50' : 'bg-white hover:bg-slate-50'
+                          }`}
+                        >
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="text-sm font-semibold text-slate-900 truncate">
+                              {formatAuthorLabel(rev)}
+                            </span>
+                            <span
+                              className={`text-xs font-medium whitespace-nowrap shrink-0 ${
+                                rev.reviewStatus === '확인 완료'
+                                  ? 'text-emerald-700'
+                                  : rev.reviewStatus === '보완 필요'
+                                    ? 'text-amber-700'
+                                    : 'text-slate-400'
+                              }`}
+                            >
+                              {rev.reviewStatus}
+                            </span>
+                          </div>
+                          <p className="mt-1 line-clamp-2 text-xs leading-relaxed text-slate-600">
+                            {rev.reasonAndResult}
+                          </p>
+                          <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-slate-500 font-mono-tabular">
+                            <span>전·후 캡처 2장</span>
+                            <span aria-hidden="true">·</span>
+                            <span>
+                              {new Date(rev.updatedAt).toLocaleTimeString('ko-KR', {
+                                hour: '2-digit',
+                                minute: '2-digit',
+                              })}
+                            </span>
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  {/* Detail Inspector */}
+                  {selectedRevision && (
+                    <div className="rounded-xl border border-slate-200 bg-white p-4 sm:p-6 lg:col-span-8">
+                      <div className="flex flex-wrap items-start justify-between gap-4 border-b border-slate-200 pb-4">
+                        <div>
+                          <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500">
+                            <span>3차시 · 수정하기</span>
+                            <span aria-hidden="true">·</span>
+                            <span className="font-mono-tabular">
+                              제출 시각 {new Date(selectedRevision.updatedAt).toLocaleString('ko-KR')}
+                            </span>
+                          </div>
+                          <h2 className="mt-1 text-xl font-bold text-slate-900">
+                            {formatAuthorLabel(selectedRevision)}
+                          </h2>
+                        </div>
+
+                        <div>
+                          {confirmDeleteRevisionId === selectedRevision.id ? (
+                            <div className="flex items-center gap-2">
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteRevision(selectedRevision.id)}
+                                className="min-h-[44px] rounded-lg bg-red-600 px-3.5 py-2 text-xs font-medium text-white hover:bg-red-700 cursor-pointer whitespace-nowrap"
+                              >
+                                삭제 확인
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setConfirmDeleteRevisionId(null)}
+                                className="min-h-[44px] rounded-lg border border-slate-300 bg-white px-3.5 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50 cursor-pointer whitespace-nowrap"
+                              >
+                                취소
+                              </button>
+                            </div>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => setConfirmDeleteRevisionId(selectedRevision.id)}
+                              className="inline-flex min-h-[44px] items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-2 text-xs text-slate-500 hover:border-red-200 hover:text-red-700 transition-colors cursor-pointer"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                              <span>삭제</span>
+                            </button>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="mt-6 space-y-6 text-sm">
+                        {/* 1. 수정 전·후 웹앱 화면 캡처 비교 */}
+                        <div>
+                          <h3 className="text-xs font-semibold text-blue-700">
+                            1. 웹앱 화면 변화 비교 (첫 프롬프트 결과 → 수정 후 결과)
+                          </h3>
+                          <div className="mt-3 grid gap-4 sm:grid-cols-2">
+                            <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+                              <div className="mb-2 flex items-center justify-between gap-2">
+                                <span className="text-xs font-semibold text-slate-700">
+                                  첫 프롬프트 결과 완성 화면
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    setZoomedImage({
+                                      label: `${formatAuthorLabel(selectedRevision)} · 첫 프롬프트 결과 화면`,
+                                      src: selectedRevision.beforeImage,
+                                    })
+                                  }
+                                  className="inline-flex items-center gap-1 rounded border border-slate-300 bg-white px-2 py-1 text-[11px] font-medium text-slate-700 hover:bg-slate-100 cursor-pointer"
+                                >
+                                  <ZoomIn className="h-3 w-3" />
+                                  <span>크게 보기</span>
+                                </button>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setZoomedImage({
+                                    label: `${formatAuthorLabel(selectedRevision)} · 첫 프롬프트 결과 화면`,
+                                    src: selectedRevision.beforeImage,
+                                  })
+                                }
+                                className="block w-full overflow-hidden rounded border border-slate-200 bg-white cursor-zoom-in"
+                              >
+                                <img
+                                  src={selectedRevision.beforeImage}
+                                  alt="첫 프롬프트 결과 웹앱 화면"
+                                  className="h-56 w-full object-contain bg-slate-100"
+                                />
+                              </button>
+                            </div>
+
+                            <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+                              <div className="mb-2 flex items-center justify-between gap-2">
+                                <span className="text-xs font-semibold text-slate-700">
+                                  수정 결과 바뀐 웹앱 화면
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    setZoomedImage({
+                                      label: `${formatAuthorLabel(selectedRevision)} · 수정 결과 바뀐 화면`,
+                                      src: selectedRevision.afterImage,
+                                    })
+                                  }
+                                  className="inline-flex items-center gap-1 rounded border border-slate-300 bg-white px-2 py-1 text-[11px] font-medium text-slate-700 hover:bg-slate-100 cursor-pointer"
+                                >
+                                  <ZoomIn className="h-3 w-3" />
+                                  <span>크게 보기</span>
+                                </button>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setZoomedImage({
+                                    label: `${formatAuthorLabel(selectedRevision)} · 수정 결과 바뀐 화면`,
+                                    src: selectedRevision.afterImage,
+                                  })
+                                }
+                                className="block w-full overflow-hidden rounded border border-slate-200 bg-white cursor-zoom-in"
+                              >
+                                <img
+                                  src={selectedRevision.afterImage}
+                                  alt="수정 결과 바뀐 웹앱 화면"
+                                  className="h-56 w-full object-contain bg-slate-100"
+                                />
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* 2. 내가 직접 수정한 코드 (수정 전 / 수정 후) */}
+                        <div className="border-t border-slate-200 pt-5">
+                          <h3 className="text-xs font-semibold text-blue-700">
+                            2. 내가 직접 수정한 코드 (수정 전 코드 · 수정 후 코드)
+                          </h3>
+                          {(() => {
+                            const pairs = parseCodeChanges(
+                              selectedRevision.beforeCode,
+                              selectedRevision.afterCode,
+                            );
+                            return (
+                              <div className="mt-3 space-y-4">
+                                {pairs.map((pair, idx) => (
+                                  <div
+                                    key={idx}
+                                    className={
+                                      pairs.length > 1
+                                        ? 'rounded-lg border border-slate-200 bg-slate-50 p-3 space-y-2.5'
+                                        : ''
+                                    }
+                                  >
+                                    {pairs.length > 1 && (
+                                      <div className="font-mono-tabular text-xs font-bold text-slate-700">
+                                        수정 코드 #{idx + 1}
+                                      </div>
+                                    )}
+                                    <div className="grid gap-4 lg:grid-cols-2">
+                                      <div>
+                                        <div className="mb-1.5 text-xs font-medium text-slate-600">
+                                          수정 전 코드
+                                        </div>
+                                        <pre className="max-h-80 overflow-auto rounded-lg border border-slate-300 bg-slate-950 p-3.5 font-mono text-xs leading-relaxed text-slate-100 whitespace-pre-wrap break-words">
+                                          {pair.beforeCode}
+                                        </pre>
+                                      </div>
+                                      <div>
+                                        <div className="mb-1.5 text-xs font-medium text-slate-600">
+                                          수정 후 코드
+                                        </div>
+                                        <pre className="max-h-80 overflow-auto rounded-lg border border-slate-300 bg-slate-950 p-3.5 font-mono text-xs leading-relaxed text-emerald-200 whitespace-pre-wrap break-words">
+                                          {pair.afterCode}
+                                        </pre>
+                                      </div>
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            );
+                          })()}
+                        </div>
+
+                        {/* 3. 해당 코드를 수정한 이유와 적용 결과 */}
+                        <div className="border-t border-slate-200 pt-5">
+                          <h3 className="text-xs font-semibold text-blue-700">
+                            3. 해당 코드를 수정한 이유와 적용 결과
+                          </h3>
+                          <p className="mt-2 whitespace-pre-wrap rounded-lg border border-slate-200 bg-slate-50 p-3.5 text-sm leading-relaxed text-slate-900">
+                            {selectedRevision.reasonAndResult}
+                          </p>
+                        </div>
+
+                        {/* 4. 교사 확인 및 피드백 기록 */}
+                        <div className="border-t border-slate-200 pt-5">
+                          <h3 className="text-xs font-semibold text-slate-900">
+                            교사 확인 기록 (3차시 코드 수정 확인)
+                          </h3>
+
+                          <div className="mt-3 grid grid-cols-3 gap-2.5">
+                            {(['미확인', '확인 완료', '보완 필요'] as RevisionReviewStatus[]).map((status) => {
+                              const active = revisionStatusDraft === status;
+                              return (
+                                <button
+                                  key={status}
+                                  type="button"
+                                  onClick={() => setRevisionStatusDraft(status)}
+                                  className={`min-h-[44px] rounded-lg border px-3 py-2.5 text-sm font-semibold transition-colors cursor-pointer sm:text-xs ${
+                                    active
+                                      ? 'border-blue-700 bg-blue-700 text-white'
+                                      : 'border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100'
+                                  }`}
+                                >
+                                  {status}
+                                </button>
+                              );
+                            })}
+                          </div>
+
+                          <div className="mt-4">
+                            <label htmlFor="revisionTeacherNote" className="block text-xs font-medium text-slate-700">
+                              교사 피드백 메모
+                            </label>
+                            <textarea
+                              id="revisionTeacherNote"
+                              rows={2}
+                              maxLength={1000}
+                              value={revisionNoteDraft}
+                              onChange={(e) => setRevisionNoteDraft(e.target.value)}
+                              placeholder="직접 수정한 코드와 결과 설명에 대한 교사 피드백을 기록하세요."
+                              className="mt-1.5 w-full rounded-lg border border-slate-300 bg-white px-3.5 py-2.5 text-base text-slate-900 placeholder:text-slate-400 focus:border-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-600/20 sm:text-sm"
+                            />
+                          </div>
+
+                          <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                            <div className="text-xs">
+                              {revisionNotice && (
+                                <span
+                                  className={`inline-flex items-start gap-1.5 ${
+                                    revisionNotice.kind === 'ok' ? 'text-emerald-700' : 'text-red-700'
+                                  }`}
+                                >
+                                  {revisionNotice.kind === 'ok' && (
+                                    <Check className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                                  )}
+                                  <span>{revisionNotice.text}</span>
+                                </span>
+                              )}
+                            </div>
+                            <button
+                              type="button"
+                              onClick={handleSaveRevisionReview}
+                              disabled={savingRevisionReview}
+                              className="min-h-[44px] w-full rounded-lg bg-slate-900 px-4 py-2.5 text-xs font-semibold text-white hover:bg-slate-800 disabled:opacity-50 transition-colors cursor-pointer whitespace-nowrap sm:w-auto"
+                            >
+                              {savingRevisionReview ? '저장 중...' : '확인 결과 저장'}
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </>
           ) : (
             <div className="mt-6">
               {/* Gallery summary metrics */}
@@ -994,6 +1531,40 @@ export default function TeacherReview({
             </div>
           )}
         </>
+      )}
+
+      {zoomedImage && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label={zoomedImage.label}
+          onClick={() => setZoomedImage(null)}
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 p-4"
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="max-h-[90vh] w-full max-w-5xl overflow-hidden rounded-xl border border-slate-700 bg-white"
+          >
+            <div className="flex items-center justify-between gap-4 border-b border-slate-200 px-4 py-3">
+              <span className="text-sm font-bold text-slate-900 truncate">{zoomedImage.label}</span>
+              <button
+                type="button"
+                onClick={() => setZoomedImage(null)}
+                className="inline-flex min-h-[36px] items-center gap-1 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-100 cursor-pointer"
+              >
+                <X className="h-4 w-4" />
+                <span>닫기</span>
+              </button>
+            </div>
+            <div className="max-h-[80vh] overflow-auto bg-slate-100 p-4">
+              <img
+                src={zoomedImage.src}
+                alt={zoomedImage.label}
+                className="mx-auto max-h-[75vh] w-auto object-contain"
+              />
+            </div>
+          </div>
+        </div>
       )}
     </section>
   );

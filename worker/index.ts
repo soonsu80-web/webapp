@@ -54,6 +54,22 @@ interface GalleryRow {
   updated_at: string;
 }
 
+interface AppRevisionRow {
+  id: string;
+  grade: string;
+  class_room: string;
+  student_name: string;
+  before_image: string;
+  before_code: string;
+  after_code: string;
+  after_image: string;
+  reason_and_result: string;
+  review_status: string;
+  teacher_note: string;
+  created_at: string;
+  updated_at: string;
+}
+
 const SESSION_COOKIE_NAME = 'classroom_teacher_session';
 const SESSION_TTL_SECONDS = 60 * 60 * 12;
 
@@ -68,6 +84,7 @@ const VALID_SOURCES = new Set([
 
 const VALID_RUBRIC = new Set(['미확인', '상', '중', '하']);
 const VALID_GALLERY_STATUS = new Set(['pending', 'approved', 'rejected']);
+const VALID_REVISION_STATUS = new Set(['미확인', '확인 완료', '보완 필요']);
 
 function jsonResponse(data: unknown, status = 200, extraHeaders?: Record<string, string>): Response {
   return new Response(JSON.stringify(data), {
@@ -83,6 +100,11 @@ function jsonResponse(data: unknown, status = 200, extraHeaders?: Record<string,
 function sanitizeText(value: unknown, maxLength: number): string {
   if (typeof value !== 'string') return '';
   return value.trim().slice(0, maxLength);
+}
+
+function sanitizeCodeText(value: unknown, maxLength: number): string {
+  if (typeof value !== 'string') return '';
+  return value.replace(/\r\n/g, '\n').slice(0, maxLength);
 }
 
 function parseCookies(cookieHeader: string | null): Record<string, string> {
@@ -177,6 +199,24 @@ function mapRowToGalleryItem(row: GalleryRow) {
     appUrl: row.app_url,
     intro: row.intro,
     status: row.status,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+function mapRowToRevision(row: AppRevisionRow) {
+  return {
+    id: row.id,
+    grade: row.grade,
+    classRoom: row.class_room,
+    studentName: row.student_name,
+    beforeImage: row.before_image,
+    beforeCode: row.before_code,
+    afterCode: row.after_code,
+    afterImage: row.after_image,
+    reasonAndResult: row.reason_and_result,
+    reviewStatus: row.review_status,
+    teacherNote: row.teacher_note,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -330,6 +370,7 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
       await env.DB.prepare('SELECT 1 FROM teacher_sessions LIMIT 1').first();
       await env.DB.prepare('SELECT 1 FROM gallery_items LIMIT 1').first();
       await env.DB.prepare('SELECT 1 FROM app_plan_prompts LIMIT 1').first();
+      await env.DB.prepare('SELECT 1 FROM app_revisions LIMIT 1').first();
       return jsonResponse({ ok: true, dbReady: true });
     } catch {
       return jsonResponse(
@@ -721,6 +762,187 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
       return jsonResponse({ ok: true });
     } catch {
       return jsonResponse({ error: '응답 삭제 중 오류가 발생했습니다.' }, 500);
+    }
+  }
+
+  if (path === '/api/revisions' && method === 'POST') {
+    let body: unknown;
+    try {
+      body = await request.json();
+    } catch {
+      return jsonResponse({ error: '올바른 JSON 요청 본문이 아닙니다.' }, 400);
+    }
+
+    if (!body || typeof body !== 'object') {
+      return jsonResponse({ error: '올바른 요청 형식이 아닙니다.' }, 400);
+    }
+    const raw = body as Record<string, unknown>;
+
+    const grade = sanitizeText(raw.grade, 20);
+    const classRoom = sanitizeText(raw.classRoom, 20);
+    const studentName = sanitizeText(raw.studentName, 40);
+    const beforeImage = typeof raw.beforeImage === 'string' ? raw.beforeImage.trim() : '';
+    const beforeCode = sanitizeCodeText(raw.beforeCode, 20000);
+    const afterCode = sanitizeCodeText(raw.afterCode, 20000);
+    const afterImage = typeof raw.afterImage === 'string' ? raw.afterImage.trim() : '';
+    const reasonAndResult = sanitizeText(raw.reasonAndResult, 3000);
+
+    if (!grade || !classRoom || !studentName) {
+      return jsonResponse({ error: '작성자의 학년, 반, 성명을 모두 입력해 주세요.' }, 400);
+    }
+
+    const imagePattern = /^data:image\/(png|jpeg|jpg|webp|gif);base64,[A-Za-z0-9+/=]+$/;
+    if (!beforeImage || !imagePattern.test(beforeImage)) {
+      return jsonResponse({ error: '첫 프롬프트 결과 완성된 웹앱 화면 캡처 이미지를 올려 주세요.' }, 400);
+    }
+    if (!afterImage || !imagePattern.test(afterImage)) {
+      return jsonResponse({ error: '수정 결과 바뀐 웹앱 화면 캡처 이미지를 올려 주세요.' }, 400);
+    }
+    if (beforeImage.length > 480000 || afterImage.length > 480000) {
+      return jsonResponse({ error: '캡처 이미지 용량이 너무 큽니다. 더 작은 이미지를 선택해 주세요.' }, 400);
+    }
+    if (!beforeCode.trim() || !afterCode.trim()) {
+      return jsonResponse({ error: '수정 전 코드와 수정 후 코드를 모두 입력해 주세요.' }, 400);
+    }
+    if (!reasonAndResult) {
+      return jsonResponse({ error: '해당 코드를 수정한 이유와 적용 결과를 서술해 주세요.' }, 400);
+    }
+
+    const id = crypto.randomUUID();
+    const nowIso = new Date().toISOString();
+
+    try {
+      await env.DB.prepare(
+        'INSERT INTO app_revisions (id, grade, class_room, student_name, before_image, before_code, after_code, after_image, reason_and_result, review_status, teacher_note, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      )
+        .bind(
+          id,
+          grade,
+          classRoom,
+          studentName,
+          beforeImage,
+          beforeCode,
+          afterCode,
+          afterImage,
+          reasonAndResult,
+          '미확인',
+          '',
+          nowIso,
+          nowIso,
+        )
+        .run();
+
+      return jsonResponse(
+        {
+          revision: {
+            id,
+            grade,
+            classRoom,
+            studentName,
+            beforeImage,
+            beforeCode,
+            afterCode,
+            afterImage,
+            reasonAndResult,
+            reviewStatus: '미확인',
+            teacherNote: '',
+            createdAt: nowIso,
+            updatedAt: nowIso,
+          },
+        },
+        201,
+      );
+    } catch {
+      return jsonResponse(
+        { error: '수정하기 기록 저장에 실패했습니다. D1 setup.sql 적용 여부를 확인해 주세요.' },
+        500,
+      );
+    }
+  }
+
+  if (path === '/api/revisions' && method === 'GET') {
+    const sessionHash = await getActiveTeacherSessionHash(request, env);
+    if (!sessionHash) {
+      return jsonResponse({ error: '교사 로그인이 필요합니다.' }, 401);
+    }
+
+    try {
+      const { results } = await env.DB.prepare(
+        'SELECT id, grade, class_room, student_name, before_image, before_code, after_code, after_image, reason_and_result, review_status, teacher_note, created_at, updated_at FROM app_revisions ORDER BY updated_at DESC LIMIT 500',
+      ).all<AppRevisionRow>();
+
+      return jsonResponse({ revisions: results.map(mapRowToRevision) });
+    } catch {
+      return jsonResponse({ error: '3차시 수정하기 목록을 조회하지 못했습니다.' }, 500);
+    }
+  }
+
+  const revisionReviewMatch = path.match(/^\/api\/revisions\/([a-zA-Z0-9-]+)\/review$/);
+  if (revisionReviewMatch && method === 'PATCH') {
+    const sessionHash = await getActiveTeacherSessionHash(request, env);
+    if (!sessionHash) {
+      return jsonResponse({ error: '교사 로그인이 필요합니다.' }, 401);
+    }
+
+    let body: unknown;
+    try {
+      body = await request.json();
+    } catch {
+      return jsonResponse({ error: '올바른 JSON 요청 본문이 아닙니다.' }, 400);
+    }
+
+    const raw = (body || {}) as Record<string, unknown>;
+    const reviewStatus = sanitizeText(raw.reviewStatus, 20);
+    const teacherNote = sanitizeText(raw.teacherNote, 1000);
+
+    if (!VALID_REVISION_STATUS.has(reviewStatus)) {
+      return jsonResponse({ error: '확인 상태는 미확인, 확인 완료, 보완 필요 중 하나여야 합니다.' }, 400);
+    }
+
+    const revisionId = revisionReviewMatch[1];
+    try {
+      const updateResult = await env.DB.prepare(
+        'UPDATE app_revisions SET review_status = ?, teacher_note = ? WHERE id = ?',
+      )
+        .bind(reviewStatus, teacherNote, revisionId)
+        .run();
+
+      if (!updateResult.meta?.changes) {
+        return jsonResponse({ error: '해당 수정하기 기록을 찾을 수 없습니다.' }, 404);
+      }
+
+      const row = await env.DB.prepare(
+        'SELECT id, grade, class_room, student_name, before_image, before_code, after_code, after_image, reason_and_result, review_status, teacher_note, created_at, updated_at FROM app_revisions WHERE id = ?',
+      )
+        .bind(revisionId)
+        .first<AppRevisionRow>();
+
+      if (!row) {
+        return jsonResponse({ error: '해당 수정하기 기록을 찾을 수 없습니다.' }, 404);
+      }
+
+      return jsonResponse({ revision: mapRowToRevision(row) });
+    } catch {
+      return jsonResponse({ error: '교사 확인 내용을 저장하지 못했습니다.' }, 500);
+    }
+  }
+
+  const revisionDeleteMatch = path.match(/^\/api\/revisions\/([a-zA-Z0-9-]+)$/);
+  if (revisionDeleteMatch && method === 'DELETE') {
+    const sessionHash = await getActiveTeacherSessionHash(request, env);
+    if (!sessionHash) {
+      return jsonResponse({ error: '교사 로그인이 필요합니다.' }, 401);
+    }
+
+    const revisionId = revisionDeleteMatch[1];
+    try {
+      const res = await env.DB.prepare('DELETE FROM app_revisions WHERE id = ?').bind(revisionId).run();
+      if (!res.meta?.changes) {
+        return jsonResponse({ error: '삭제할 수정하기 기록을 찾을 수 없습니다.' }, 404);
+      }
+      return jsonResponse({ ok: true });
+    } catch {
+      return jsonResponse({ error: '수정하기 기록 삭제 중 오류가 발생했습니다.' }, 500);
     }
   }
 

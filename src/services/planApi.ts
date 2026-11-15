@@ -1,9 +1,12 @@
 import type {
   AppPlanInput,
   AppPlanSubmission,
+  AppRevisionInput,
+  AppRevisionSubmission,
   GalleryInput,
   GalleryItem,
   GalleryStatus,
+  RevisionReviewStatus,
   RubricLevel,
 } from '../types/lesson';
 
@@ -457,3 +460,158 @@ export async function deleteTeacherGalleryItem(id: string): Promise<{
     return { connected: false, ok: false, error: '서버와 통신하지 못했습니다.' };
   }
 }
+
+export async function submitRevisionToApi(input: AppRevisionInput): Promise<{
+  connected: boolean;
+  ok: boolean;
+  revision?: AppRevisionSubmission;
+  error?: string;
+}> {
+  try {
+    const res = await fetch('/api/revisions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+      },
+      credentials: 'same-origin',
+      body: JSON.stringify(input),
+    });
+    if (!isJsonResponse(res)) {
+      return {
+        connected: false,
+        ok: false,
+        error: '저장 준비 중: /api 데이터 저장소가 연결되지 않아 서버에 저장되지 않았습니다.',
+      };
+    }
+    const data = await res.json();
+    if (!res.ok || !data?.revision) {
+      return {
+        connected: true,
+        ok: false,
+        error: typeof data?.error === 'string' ? data.error : '3차시 수정 기록 저장에 실패했습니다.',
+      };
+    }
+    return { connected: true, ok: true, revision: data.revision };
+  } catch {
+    return {
+      connected: false,
+      ok: false,
+      error: '저장 준비 중: 서버와 통신하지 못해 저장되지 않았습니다.',
+    };
+  }
+}
+
+export async function fetchTeacherRevisions(): Promise<{
+  connected: boolean;
+  unauthorized?: boolean;
+  revisions: AppRevisionSubmission[];
+  error?: string;
+}> {
+  try {
+    const res = await fetch('/api/revisions', {
+      method: 'GET',
+      headers: { Accept: 'application/json' },
+      credentials: 'same-origin',
+    });
+    if (!isJsonResponse(res)) {
+      return { connected: false, revisions: [] };
+    }
+    const data = await res.json();
+    if (res.status === 401) {
+      return {
+        connected: true,
+        unauthorized: true,
+        revisions: [],
+        error: typeof data?.error === 'string' ? data.error : '교사 로그인이 필요합니다.',
+      };
+    }
+    if (!res.ok) {
+      return {
+        connected: true,
+        revisions: [],
+        error: typeof data?.error === 'string' ? data.error : '3차시 수정하기 목록을 불러오지 못했습니다.',
+      };
+    }
+    return {
+      connected: true,
+      revisions: Array.isArray(data?.revisions) ? data.revisions : [],
+    };
+  } catch {
+    return { connected: false, revisions: [], error: '서버와 연결하지 못했습니다.' };
+  }
+}
+
+export async function saveTeacherRevisionReviewToApi(
+  id: string,
+  reviewStatus: RevisionReviewStatus,
+  teacherNote: string,
+): Promise<{
+  connected: boolean;
+  ok: boolean;
+  unauthorized?: boolean;
+  revision?: AppRevisionSubmission;
+  error?: string;
+}> {
+  try {
+    const res = await fetch(`/api/revisions/${encodeURIComponent(id)}/review`, {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+      },
+      credentials: 'same-origin',
+      body: JSON.stringify({ reviewStatus, teacherNote }),
+    });
+    if (!isJsonResponse(res)) {
+      return { connected: false, ok: false, error: '인증/저장 서버(/api)에 연결되지 않았습니다.' };
+    }
+    const data = await res.json();
+    if (res.status === 401) {
+      return { connected: true, ok: false, unauthorized: true, error: '교사 세션이 만료되었습니다.' };
+    }
+    if (!res.ok || !data?.revision) {
+      return {
+        connected: true,
+        ok: false,
+        error: typeof data?.error === 'string' ? data.error : '교사 확인 저장에 실패했습니다.',
+      };
+    }
+    return { connected: true, ok: true, revision: data.revision };
+  } catch {
+    return { connected: false, ok: false, error: '서버와 통신하지 못했습니다.' };
+  }
+}
+
+export async function deleteRevisionFromApi(id: string): Promise<{
+  connected: boolean;
+  ok: boolean;
+  unauthorized?: boolean;
+  error?: string;
+}> {
+  try {
+    const res = await fetch(`/api/revisions/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+      headers: { Accept: 'application/json' },
+      credentials: 'same-origin',
+    });
+    if (!isJsonResponse(res)) {
+      return { connected: false, ok: false, error: '인증/저장 서버(/api)에 연결되지 않았습니다.' };
+    }
+    const data = await res.json();
+    if (res.status === 401) {
+      return { connected: true, ok: false, unauthorized: true, error: '교사 세션이 만료되었습니다.' };
+    }
+    if (!res.ok) {
+      return {
+        connected: true,
+        ok: false,
+        error: typeof data?.error === 'string' ? data.error : '삭제에 실패했습니다.',
+      };
+    }
+    return { connected: true, ok: true };
+  } catch {
+    return { connected: false, ok: false, error: '서버와 통신하지 못했습니다.' };
+  }
+}
+
