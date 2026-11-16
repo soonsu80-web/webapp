@@ -108,7 +108,7 @@ export default function AppPlanForm({
       !form.constraints.trim() ||
       !form.programmingPrinciples.trim()
     ) {
-      setErrorMessage('앱 기획서 4가지 항목(기능, 저장 데이터, 제약사항, 프로그래밍 원리)을 모두 작성해 주세요.');
+      setErrorMessage('앱 기획서 4가지 항목(기능, 저장 데이터, 제약사항, 추가사항)을 모두 작성해 주세요.');
       return;
     }
 
@@ -163,22 +163,12 @@ export default function AppPlanForm({
         <div>
           <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 font-mono-tabular text-xs font-semibold text-slate-600">
             <span className="text-blue-700">2차시 · 앱 기획서</span>
-            <span aria-hidden="true">·</span>
-            <span>
-              {backendMode === 'checking'
-                ? '저장소 연결 확인 중'
-                : backendMode === 'ready'
-                  ? 'D1 저장소 연결됨 (/api/plans)'
-                  : backendMode === 'db_uninitialized'
-                    ? 'D1 테이블 미생성 (setup.sql 실행 필요)'
-                    : '저장 준비 중 (/api 미연결)'}
-            </span>
           </div>
           <h1 className="mt-1.5 text-2xl font-extrabold tracking-tight text-slate-950 sm:text-3xl">
             웹앱 화면 구성 및 앱 기획서 완성
           </h1>
           <p className="mt-1.5 text-sm text-slate-600">
-            문제탐색에서 정리한 내용을 바탕으로 화면 구성, 구현 기능, 데이터, 제약사항, 프로그래밍 원리를 작성하세요.
+            문제탐색에서 정리한 내용을 바탕으로 화면 구성, 구현 기능, 데이터, 제약사항, 추가사항을 작성하세요.
           </p>
         </div>
 
@@ -295,7 +285,7 @@ export default function AppPlanForm({
           <div className="border-b border-slate-100 pb-3">
             <div className="text-xs font-medium text-slate-500">02. [정리] 앱 기획서 완성</div>
             <h2 className="mt-0.5 text-base font-bold text-slate-900">
-              구현 기능 · 저장 데이터 · 제약사항 · 프로그래밍 원리
+              구현 기능 · 저장 데이터 · 제약사항 · 추가사항
             </h2>
           </div>
 
@@ -347,7 +337,7 @@ export default function AppPlanForm({
 
             <div>
               <label htmlFor="programmingPrinciples" className="block text-sm font-medium text-slate-800">
-                ④ 적용할 프로그래밍 원리
+                ④ 추가사항
               </label>
               <textarea
                 id="programmingPrinciples"
@@ -355,7 +345,7 @@ export default function AppPlanForm({
                 maxLength={1500}
                 value={form.programmingPrinciples}
                 onChange={(e) => handleFieldChange('programmingPrinciples', e.target.value)}
-                placeholder="문제 분해·모델링, 제어 구조(조건문·반복문 등), 데이터 구조 중 어떤 원리가 어디에 쓰이는지 설명해 주세요."
+                placeholder="모바일에서 잘 출력되도록 반응형 CSS 사용하기 등 웹앱에 추가로 반영할 요구사항을 적어 주세요."
                 className="mt-2 w-full rounded-lg border border-slate-300 bg-white px-3.5 py-3 text-base text-slate-900 placeholder:text-slate-400 focus:border-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-600/20 sm:text-sm"
               />
             </div>
@@ -371,7 +361,7 @@ export default function AppPlanForm({
                 프롬프트
               </label>
               <p className="mt-1 text-xs leading-relaxed text-slate-600">
-                입력한 웹앱 제목, 구현할 기능, 저장할 데이터, 제약사항이 아래 기본 문구에 자동으로 반영됩니다. 6. 추가사항 등 필요한 내용을 직접 입력해 사용하세요.
+                입력한 웹앱 제목, 구현할 기능, 저장할 데이터, 제약사항, 추가사항이 아래 기본 문구에 자동으로 반영됩니다.
               </p>
             </div>
 

@@ -614,7 +614,7 @@ function StudentReportContent({
                   </p>
                 </div>
                 <div className="rounded-lg border border-slate-200 bg-slate-50 p-3.5">
-                  <div className="text-xs font-bold text-slate-600">④ 적용할 프로그래밍 원리</div>
+                  <div className="text-xs font-bold text-slate-600">④ 추가사항</div>
                   <p className="mt-1 whitespace-pre-wrap text-xs leading-relaxed text-slate-800 sm:text-sm">
                     {portfolio.plan.programmingPrinciples}
                   </p>
@@ -1192,7 +1192,7 @@ export default function TeacherReview({
       '구현할 기능',
       '저장할 데이터',
       '제약사항',
-      '적용할 프로그래밍 원리',
+      '추가사항',
       '프롬프트',
       '안전 약속 확인',
       '2단계 앱 기획서 평가(상/중/하)',

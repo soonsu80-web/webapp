@@ -443,16 +443,6 @@ export default function RevisionPage({
         <div>
           <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 font-mono-tabular text-xs font-semibold text-slate-600">
             <span className="text-blue-700">3차시 · 수정하기</span>
-            <span aria-hidden="true">·</span>
-            <span>
-              {backendMode === 'checking'
-                ? '저장소 연결 확인 중'
-                : backendMode === 'ready'
-                  ? 'D1 저장소 연결됨 (/api/revisions)'
-                  : backendMode === 'db_uninitialized'
-                    ? 'D1 테이블 미생성 (setup.sql 실행 필요)'
-                    : '저장 준비 중 (/api 미연결)'}
-            </span>
           </div>
           <h1 className="mt-1.5 text-2xl font-extrabold tracking-tight text-slate-950 sm:text-3xl">
             테스트 및 수정 보완
