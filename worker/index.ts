@@ -75,6 +75,17 @@ interface AppRevisionRow {
   updated_at: string;
 }
 
+interface StageEvaluationRow {
+  student_key: string;
+  discovery_rubric: string;
+  discovery_note: string;
+  plan_rubric: string;
+  plan_note: string;
+  revision_rubric: string;
+  revision_note: string;
+  updated_at: string;
+}
+
 const SESSION_COOKIE_NAME = 'classroom_teacher_session';
 const SESSION_TTL_SECONDS = 60 * 60 * 12;
 
@@ -299,6 +310,34 @@ function mapRowToRevision(row: AppRevisionRow) {
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
+}
+
+function mapRowToStageEvaluation(row: StageEvaluationRow) {
+  return {
+    studentKey: row.student_key,
+    discoveryRubric: VALID_RUBRIC.has(row.discovery_rubric) ? row.discovery_rubric : '미확인',
+    discoveryNote: row.discovery_note ?? '',
+    planRubric: VALID_RUBRIC.has(row.plan_rubric) ? row.plan_rubric : '미확인',
+    planNote: row.plan_note ?? '',
+    revisionRubric: VALID_RUBRIC.has(row.revision_rubric) ? row.revision_rubric : '미확인',
+    revisionNote: row.revision_note ?? '',
+    updatedAt: row.updated_at,
+  };
+}
+
+let stageEvaluationsTableReady = false;
+
+async function ensureStageEvaluationsTable(db: D1Database): Promise<void> {
+  if (stageEvaluationsTableReady) return;
+  await db
+    .prepare(
+      "CREATE TABLE IF NOT EXISTS stage_evaluations (student_key TEXT PRIMARY KEY, discovery_rubric TEXT NOT NULL DEFAULT '미확인', discovery_note TEXT NOT NULL DEFAULT '', plan_rubric TEXT NOT NULL DEFAULT '미확인', plan_note TEXT NOT NULL DEFAULT '', revision_rubric TEXT NOT NULL DEFAULT '미확인', revision_note TEXT NOT NULL DEFAULT '', updated_at TEXT NOT NULL)",
+    )
+    .run();
+  await db
+    .prepare('CREATE INDEX IF NOT EXISTS idx_stage_evaluations_updated_at ON stage_evaluations(updated_at DESC)')
+    .run();
+  stageEvaluationsTableReady = true;
 }
 
 async function getActiveTeacherSessionHash(request: Request, env: Env): Promise<string | null> {
@@ -1399,6 +1438,116 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
       });
     } catch {
       return jsonResponse({ error: '보고서 수정 내용을 저장하는 중 오류가 발생했습니다.' }, 500);
+    }
+  }
+
+  // Teacher per-stage evaluations (문제탐색 / 앱 기획서 / 수정하기)
+  if (path === '/api/teacher/evaluations' && method === 'GET') {
+    const sessionHash = await getActiveTeacherSessionHash(request, env);
+    if (!sessionHash) {
+      return jsonResponse({ error: '교사 로그인이 필요합니다.' }, 401);
+    }
+
+    try {
+      await ensureStageEvaluationsTable(env.DB);
+      const { results } = await env.DB.prepare(
+        'SELECT student_key, discovery_rubric, discovery_note, plan_rubric, plan_note, revision_rubric, revision_note, updated_at FROM stage_evaluations ORDER BY updated_at DESC LIMIT 1000',
+      ).all<StageEvaluationRow>();
+
+      return jsonResponse({ evaluations: results.map(mapRowToStageEvaluation) });
+    } catch {
+      return jsonResponse({ error: '단계별 평가 목록을 불러오지 못했습니다.' }, 500);
+    }
+  }
+
+  if (path === '/api/teacher/evaluations' && method === 'PUT') {
+    const sessionHash = await getActiveTeacherSessionHash(request, env);
+    if (!sessionHash) {
+      return jsonResponse({ error: '교사 로그인이 필요합니다.' }, 401);
+    }
+
+    let body: unknown;
+    try {
+      body = await request.json();
+    } catch {
+      return jsonResponse({ error: '올바른 JSON 요청 본문이 아닙니다.' }, 400);
+    }
+
+    const raw = (body || {}) as Record<string, unknown>;
+    const studentKey = sanitizeText(raw.studentKey, 120);
+    const stage = sanitizeText(raw.stage, 20);
+    const rubric = sanitizeText(raw.rubric, 20);
+    const note = sanitizeText(raw.note, 1000);
+    const planId = sanitizeText(raw.planId, 80);
+    const revisionId = sanitizeText(raw.revisionId, 80);
+
+    if (!studentKey) {
+      return jsonResponse({ error: '평가할 학생 식별 정보가 필요합니다.' }, 400);
+    }
+    if (stage !== 'discovery' && stage !== 'plan' && stage !== 'revision') {
+      return jsonResponse({ error: '유효한 평가 단계(discovery, plan, revision)를 지정해 주세요.' }, 400);
+    }
+    if (!VALID_RUBRIC.has(rubric)) {
+      return jsonResponse({ error: '평가는 미확인, 상, 중, 하 중 하나여야 합니다.' }, 400);
+    }
+
+    try {
+      await ensureStageEvaluationsTable(env.DB);
+      const nowIso = new Date().toISOString();
+
+      const existing = await env.DB.prepare(
+        'SELECT student_key, discovery_rubric, discovery_note, plan_rubric, plan_note, revision_rubric, revision_note, updated_at FROM stage_evaluations WHERE student_key = ?',
+      )
+        .bind(studentKey)
+        .first<StageEvaluationRow>();
+
+      const nextDiscoveryRubric = stage === 'discovery' ? rubric : existing?.discovery_rubric || '미확인';
+      const nextDiscoveryNote = stage === 'discovery' ? note : existing?.discovery_note || '';
+      const nextPlanRubric = stage === 'plan' ? rubric : existing?.plan_rubric || '미확인';
+      const nextPlanNote = stage === 'plan' ? note : existing?.plan_note || '';
+      const nextRevisionRubric = stage === 'revision' ? rubric : existing?.revision_rubric || '미확인';
+      const nextRevisionNote = stage === 'revision' ? note : existing?.revision_note || '';
+
+      await env.DB.prepare(
+        'INSERT OR REPLACE INTO stage_evaluations (student_key, discovery_rubric, discovery_note, plan_rubric, plan_note, revision_rubric, revision_note, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+      )
+        .bind(
+          studentKey,
+          nextDiscoveryRubric,
+          nextDiscoveryNote,
+          nextPlanRubric,
+          nextPlanNote,
+          nextRevisionRubric,
+          nextRevisionNote,
+          nowIso,
+        )
+        .run();
+
+      if (stage === 'plan' && planId) {
+        await env.DB.prepare('UPDATE app_plans SET rubric_level = ?, teacher_note = ? WHERE id = ?')
+          .bind(rubric, note, planId)
+          .run();
+      }
+      if (stage === 'revision' && revisionId) {
+        await env.DB.prepare('UPDATE app_revisions SET teacher_note = ? WHERE id = ?')
+          .bind(note, revisionId)
+          .run();
+      }
+
+      return jsonResponse({
+        evaluation: {
+          studentKey,
+          discoveryRubric: nextDiscoveryRubric,
+          discoveryNote: nextDiscoveryNote,
+          planRubric: nextPlanRubric,
+          planNote: nextPlanNote,
+          revisionRubric: nextRevisionRubric,
+          revisionNote: nextRevisionNote,
+          updatedAt: nowIso,
+        },
+      });
+    } catch {
+      return jsonResponse({ error: '단계별 평가 내용을 저장하지 못했습니다.' }, 500);
     }
   }
 

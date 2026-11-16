@@ -19,10 +19,11 @@ import {
 import type {
   AppPlanSubmission,
   AppRevisionSubmission,
+  EvaluationStage,
   GalleryItem,
   GalleryStatus,
-  RevisionReviewStatus,
   RubricLevel,
+  StageEvaluation,
 } from '../types/lesson';
 import {
   deletePlanFromApi,
@@ -30,17 +31,18 @@ import {
   deleteTeacherGalleryItem,
   loginTeacher,
   logoutTeacher,
-  saveTeacherReviewToApi,
-  saveTeacherRevisionReviewToApi,
+  saveStageEvaluationToApi,
   updateTeacherGalleryStatus,
   type BackendMode,
 } from '../services/planApi';
 import { buildPromptDraft } from '../utils/promptDraft';
 
+const RUBRIC_OPTIONS: RubricLevel[] = ['상', '중', '하', '미확인'];
+
 const RUBRIC_DESCRIPTIONS: { level: Exclude<RubricLevel, '미확인'>; desc: string }[] = [
   {
     level: '상',
-    desc: '일상생활 속 문제 상황과 연계하여 웹앱의 화면 구성과 필요한 프로그래밍 원리를 체계적으로 분석하여 설명함.',
+    desc: '일상생활 속 문제 상황과 연계하여 웹앱의 화면 구성과 필요한 프로그래밍 원리를 체계적으로 분석·구현함.',
   },
   {
     level: '중',
@@ -52,11 +54,6 @@ const RUBRIC_DESCRIPTIONS: { level: Exclude<RubricLevel, '미확인'>; desc: str
   },
 ];
 
-function escapeCsvCell(value: string): string {
-  const safe = value.replace(/"/g, '""');
-  return `"${safe}"`;
-}
-
 function parseNumeric(raw: string): number {
   const digits = raw.replace(/[^0-9]/g, '');
   if (!digits) return Number.MAX_SAFE_INTEGER;
@@ -65,8 +62,7 @@ function parseNumeric(raw: string): number {
 }
 
 function normalizeUnit(raw: string, suffix: string): string {
-  const trimmed = raw.trim().replace(new RegExp(`${suffix}$`), '').trim();
-  return trimmed;
+  return raw.trim().replace(new RegExp(`${suffix}$`), '').trim();
 }
 
 function formatGradeText(grade: string): string {
@@ -114,6 +110,24 @@ function formatFullAuthorLabel(item: {
     .join(' ');
 }
 
+function escapeCsvCell(value: string): string {
+  const safe = value.replace(/"/g, '""');
+  return `"${safe}"`;
+}
+
+function rubricBadgeClass(level: RubricLevel): string {
+  switch (level) {
+    case '상':
+      return 'border-blue-200 bg-blue-50 text-blue-800';
+    case '중':
+      return 'border-emerald-200 bg-emerald-50 text-emerald-800';
+    case '하':
+      return 'border-amber-200 bg-amber-50 text-amber-800';
+    default:
+      return 'border-slate-200 bg-slate-100 text-slate-500';
+  }
+}
+
 interface UnifiedStudentPortfolio {
   key: string;
   grade: string;
@@ -153,7 +167,8 @@ function buildUnifiedPortfolios(
     const cNum = parseNumeric(plan.classRoom);
     const nNum = parseNumeric(plan.studentNumber);
     const classKey = `${normalizeUnit(plan.grade, '학년')}-${normalizeUnit(plan.classRoom, '반')}`;
-    const classLabel = [formatGradeText(plan.grade), formatClassText(plan.classRoom)].filter(Boolean).join(' ') || '반 미지정';
+    const classLabel =
+      [formatGradeText(plan.grade), formatClassText(plan.classRoom)].filter(Boolean).join(' ') || '반 미지정';
 
     if (!existing) {
       map.set(key, {
@@ -194,7 +209,8 @@ function buildUnifiedPortfolios(
     const cNum = parseNumeric(rev.classRoom);
     const nNum = parseNumeric(rev.studentNumber);
     const classKey = `${normalizeUnit(rev.grade, '학년')}-${normalizeUnit(rev.classRoom, '반')}`;
-    const classLabel = [formatGradeText(rev.grade), formatClassText(rev.classRoom)].filter(Boolean).join(' ') || '반 미지정';
+    const classLabel =
+      [formatGradeText(rev.grade), formatClassText(rev.classRoom)].filter(Boolean).join(' ') || '반 미지정';
 
     if (!existing) {
       map.set(key, {
@@ -238,23 +254,579 @@ function buildUnifiedPortfolios(
   });
 }
 
+interface ResolvedStageEval {
+  discoveryRubric: RubricLevel;
+  discoveryNote: string;
+  planRubric: RubricLevel;
+  planNote: string;
+  revisionRubric: RubricLevel;
+  revisionNote: string;
+}
+
+function resolveEvaluationForPortfolio(
+  portfolio: UnifiedStudentPortfolio,
+  evaluationMap: Map<string, StageEvaluation>,
+): ResolvedStageEval {
+  const saved = evaluationMap.get(portfolio.key);
+  return {
+    discoveryRubric: saved?.discoveryRubric ?? '미확인',
+    discoveryNote: saved?.discoveryNote ?? '',
+    planRubric:
+      saved && saved.planRubric !== '미확인'
+        ? saved.planRubric
+        : (portfolio.plan?.rubricLevel ?? '미확인'),
+    planNote: saved?.planNote || portfolio.plan?.teacherNote || '',
+    revisionRubric: saved?.revisionRubric ?? '미확인',
+    revisionNote: saved?.revisionNote || portfolio.revision?.teacherNote || '',
+  };
+}
+
+interface StageEvaluationMenuProps {
+  stageLabel: string;
+  subtitle: string;
+  rubric: RubricLevel;
+  note: string;
+  saving: boolean;
+  notice: { kind: 'ok' | 'err'; text: string } | null;
+  onSelectRubric: (level: RubricLevel) => void;
+  onNoteChange: (value: string) => void;
+  onSaveNote: () => void;
+  showRubricGuide?: boolean;
+}
+
+function StageEvaluationMenu({
+  stageLabel,
+  subtitle,
+  rubric,
+  note,
+  saving,
+  notice,
+  onSelectRubric,
+  onNoteChange,
+  onSaveNote,
+  showRubricGuide = false,
+}: StageEvaluationMenuProps) {
+  return (
+    <div className="mt-5 rounded-xl border border-blue-200 bg-blue-50/50 p-4 print:hidden">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-xs font-extrabold text-slate-900">{stageLabel}</span>
+            <span
+              className={`inline-flex items-center rounded-md border px-2 py-0.5 text-[11px] font-bold ${rubricBadgeClass(rubric)}`}
+            >
+              현재: {rubric}
+            </span>
+          </div>
+          <p className="mt-0.5 text-[11px] text-slate-600">{subtitle}</p>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label={stageLabel}>
+          {RUBRIC_OPTIONS.map((level) => {
+            const active = rubric === level;
+            const activeColors =
+              level === '상'
+                ? 'border-blue-700 bg-blue-700 text-white'
+                : level === '중'
+                  ? 'border-emerald-700 bg-emerald-700 text-white'
+                  : level === '하'
+                    ? 'border-amber-600 bg-amber-600 text-white'
+                    : 'border-slate-700 bg-slate-700 text-white';
+            return (
+              <button
+                key={level}
+                type="button"
+                disabled={saving}
+                onClick={() => onSelectRubric(level)}
+                className={`min-h-[38px] min-w-[54px] rounded-lg border px-3 py-1.5 text-xs font-bold transition-colors cursor-pointer disabled:opacity-60 ${
+                  active
+                    ? activeColors
+                    : 'border-slate-300 bg-white text-slate-700 hover:bg-slate-100'
+                }`}
+              >
+                {level}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {showRubricGuide && (
+        <div className="mt-2.5 grid gap-1 rounded-lg border border-blue-100 bg-white/80 px-3 py-2 text-[11px] text-slate-600">
+          {RUBRIC_DESCRIPTIONS.map((item) => (
+            <div key={item.level}>
+              <strong className="font-bold text-slate-800">{item.level}:</strong> {item.desc}
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center">
+        <input
+          type="text"
+          maxLength={1000}
+          value={note}
+          onChange={(e) => onNoteChange(e.target.value)}
+          placeholder={`${stageLabel} 피드백 메모 (선택 입력)`}
+          className="min-h-[38px] flex-1 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs text-slate-900 placeholder:text-slate-400 focus:border-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-600/20"
+        />
+        <button
+          type="button"
+          disabled={saving}
+          onClick={onSaveNote}
+          className="min-h-[38px] rounded-lg bg-slate-900 px-3.5 py-1.5 text-xs font-semibold text-white hover:bg-slate-800 disabled:opacity-50 transition-colors cursor-pointer whitespace-nowrap shrink-0"
+        >
+          {saving ? '저장 중...' : '평가·메모 저장'}
+        </button>
+      </div>
+
+      {notice && (
+        <div
+          role={notice.kind === 'err' ? 'alert' : 'status'}
+          className={`mt-2 flex items-center gap-1.5 text-xs font-medium ${
+            notice.kind === 'ok' ? 'text-emerald-700' : 'text-red-700'
+          }`}
+        >
+          {notice.kind === 'ok' && <Check className="h-3.5 w-3.5 shrink-0" />}
+          <span>{notice.text}</span>
+        </div>
+      )}
+    </div>
+  );
+}
+
+interface StudentReportContentProps {
+  portfolio: UnifiedStudentPortfolio;
+  isPrintView?: boolean;
+  onZoomImage?: (payload: { label: string; src: string }) => void;
+  evalState?: ResolvedStageEval;
+  stageNotesDraft?: Record<EvaluationStage, string>;
+  savingStage?: EvaluationStage | null;
+  stageNotices?: Partial<Record<EvaluationStage, { kind: 'ok' | 'err'; text: string } | null>>;
+  onSelectStageRubric?: (stage: EvaluationStage, level: RubricLevel) => void;
+  onStageNoteChange?: (stage: EvaluationStage, value: string) => void;
+  onSaveStageNote?: (stage: EvaluationStage) => void;
+}
+
+function StudentReportContent({
+  portfolio,
+  isPrintView = false,
+  onZoomImage,
+  evalState,
+  stageNotesDraft,
+  savingStage,
+  stageNotices,
+  onSelectStageRubric,
+  onStageNoteChange,
+  onSaveStageNote,
+}: StudentReportContentProps) {
+  const promptText = portfolio.plan
+    ? portfolio.plan.finalPrompt?.trim() ||
+      portfolio.plan.promptDraft?.trim() ||
+      buildPromptDraft(portfolio.plan)
+    : '';
+
+  return (
+    <article
+      className={
+        isPrintView
+          ? 'mx-auto max-w-[210mm] rounded-xl border border-slate-300 bg-white p-6 text-slate-950 shadow-sm sm:p-10 print:max-w-none print:rounded-none print:border-0 print:p-0 print:shadow-none'
+          : 'overflow-hidden rounded-2xl border border-slate-300 bg-white text-slate-950 print:rounded-none print:border-0'
+      }
+    >
+      {/* 보고서 상단 헤더 */}
+      <header
+        className={
+          isPrintView
+            ? 'border-b-2 border-slate-900 pb-5'
+            : 'border-b border-slate-200 bg-slate-900 px-5 py-5 text-white sm:px-7 sm:py-6 print:border-b-2 print:border-slate-900 print:bg-white print:px-0 print:text-slate-950'
+        }
+      >
+        <div
+          className={`flex flex-wrap items-center justify-between gap-2 text-xs font-mono-tabular ${
+            isPrintView ? 'text-blue-800 font-bold' : 'text-blue-300 print:text-slate-700'
+          }`}
+        >
+          <span>고등학교 1학년 정보 · 실생활 문제 해결 웹앱 프로젝트 보고서</span>
+          <span>최근 제출: {new Date(portfolio.latestUpdatedAt).toLocaleString('ko-KR')}</span>
+        </div>
+
+        <h2
+          className={`mt-2 text-2xl font-extrabold tracking-tight sm:text-3xl ${
+            isPrintView ? 'text-slate-950' : 'text-white print:text-slate-950'
+          }`}
+        >
+          {portfolio.appTitle || '웹앱 제목 미입력'}
+        </h2>
+
+        <div
+          className={`mt-3 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-xs ${
+            isPrintView ? 'text-slate-700' : 'text-slate-200 print:text-slate-800'
+          }`}
+        >
+          <span className="font-bold">
+            작성자: {formatFullAuthorLabel(portfolio)}
+            {portfolio.studentIdBadge ? ` (학번 ${portfolio.studentIdBadge})` : ''}
+          </span>
+          <span aria-hidden="true">·</span>
+          <span>1·2차시 문제탐색·앱 기획서: {portfolio.plan ? '제출 완료' : '미제출'}</span>
+          <span aria-hidden="true">·</span>
+          <span>3차시 수정하기: {portfolio.revision ? '제출 완료' : '미제출'}</span>
+        </div>
+
+        {!isPrintView && evalState && (
+          <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-slate-800 pt-3.5 text-[11px] print:hidden">
+            <span className="text-slate-400 font-semibold mr-1">단계별 평가 요약:</span>
+            <span className="rounded-md border border-slate-700 bg-slate-800 px-2.5 py-1 font-semibold text-slate-100">
+              1. 문제탐색: <strong className="text-blue-300">{evalState.discoveryRubric}</strong>
+            </span>
+            <span className="rounded-md border border-slate-700 bg-slate-800 px-2.5 py-1 font-semibold text-slate-100">
+              2. 앱 기획서: <strong className="text-blue-300">{evalState.planRubric}</strong>
+            </span>
+            <span className="rounded-md border border-slate-700 bg-slate-800 px-2.5 py-1 font-semibold text-slate-100">
+              3. 수정하기: <strong className="text-blue-300">{evalState.revisionRubric}</strong>
+            </span>
+          </div>
+        )}
+      </header>
+
+      {/* 단일 페이지 통합 보고서 본문: 1. 문제탐색 -> 2. 앱 기획서 -> 3. 수정하기 */}
+      <div className={isPrintView ? 'divide-y divide-slate-300' : 'divide-y divide-slate-200'}>
+        {/* 1단계: 문제탐색 */}
+        <section className={isPrintView ? 'py-6' : 'p-5 sm:p-7'}>
+          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 pb-2.5">
+            <div>
+              <div className="font-mono-tabular text-[11px] font-bold text-blue-700">STEP 01</div>
+              <h3 className="text-base font-extrabold text-slate-950 sm:text-lg">1. 문제탐색</h3>
+            </div>
+            {portfolio.plan && (
+              <span className="rounded-md bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-700">
+                탐색 경로: {portfolio.plan.discoverySource}
+              </span>
+            )}
+          </div>
+
+          {!portfolio.plan ? (
+            <div className="mt-4 rounded-lg border border-dashed border-slate-300 bg-slate-50 px-4 py-6 text-center text-sm text-slate-500">
+              아직 1단계 [문제탐색] 제출 내역이 없습니다.
+            </div>
+          ) : (
+            <div className="mt-4 space-y-4 text-sm">
+              <div className="rounded-lg border border-slate-200 bg-slate-50 p-3.5">
+                <div className="text-xs font-bold text-slate-600">선정한 실생활 문제</div>
+                <p className="mt-1 whitespace-pre-wrap leading-relaxed text-slate-900">
+                  {portfolio.plan.problemSummary}
+                </p>
+              </div>
+
+              <div className="grid gap-3.5 sm:grid-cols-2">
+                <div className="rounded-lg border border-slate-200 bg-slate-50 p-3.5">
+                  <div className="text-xs font-bold text-slate-600">선정 기준 ① 시급성</div>
+                  <p className="mt-1 whitespace-pre-wrap text-xs leading-relaxed text-slate-800 sm:text-sm">
+                    {portfolio.plan.urgencyReason}
+                  </p>
+                </div>
+                <div className="rounded-lg border border-slate-200 bg-slate-50 p-3.5">
+                  <div className="text-xs font-bold text-slate-600">선정 기준 ② 공공의 이익</div>
+                  <p className="mt-1 whitespace-pre-wrap text-xs leading-relaxed text-slate-800 sm:text-sm">
+                    {portfolio.plan.publicBenefitReason}
+                  </p>
+                </div>
+              </div>
+
+              <div className="rounded-lg border border-slate-200 bg-slate-50 p-3.5">
+                <div className="text-xs font-bold text-slate-600">나의 탐구 질문</div>
+                <p className="mt-1 whitespace-pre-wrap leading-relaxed text-slate-900">
+                  {portfolio.plan.inquiryQuestion}
+                </p>
+              </div>
+            </div>
+          )}
+
+          {!isPrintView && evalState && stageNotesDraft && onSelectStageRubric && onStageNoteChange && onSaveStageNote && (
+            <StageEvaluationMenu
+              stageLabel="문제탐색 평가"
+              subtitle="실생활 문제 정의의 시급성·공공성 및 탐구 질문 구체성을 평가합니다 (클릭 즉시 저장)."
+              rubric={evalState.discoveryRubric}
+              note={stageNotesDraft.discovery}
+              saving={savingStage === 'discovery'}
+              notice={stageNotices?.discovery ?? null}
+              onSelectRubric={(level) => onSelectStageRubric('discovery', level)}
+              onNoteChange={(val) => onStageNoteChange('discovery', val)}
+              onSaveNote={() => onSaveStageNote('discovery')}
+            />
+          )}
+        </section>
+
+        {/* 2단계: 앱 기획서 */}
+        <section className={isPrintView ? 'py-6' : 'p-5 sm:p-7'}>
+          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 pb-2.5">
+            <div>
+              <div className="font-mono-tabular text-[11px] font-bold text-blue-700">STEP 02</div>
+              <h3 className="text-base font-extrabold text-slate-950 sm:text-lg">2. 앱 기획서</h3>
+            </div>
+            {portfolio.plan && (
+              <span className="rounded-md bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-700">
+                {portfolio.plan.safetyChecked ? '디지털 안전 약속 확인함' : '안전 약속 미확인'}
+              </span>
+            )}
+          </div>
+
+          {!portfolio.plan ? (
+            <div className="mt-4 rounded-lg border border-dashed border-slate-300 bg-slate-50 px-4 py-6 text-center text-sm text-slate-500">
+              아직 2단계 [앱 기획서] 제출 내역이 없습니다.
+            </div>
+          ) : (
+            <div className="mt-4 space-y-4 text-sm">
+              <div className="grid gap-3.5 sm:grid-cols-2">
+                <div className="rounded-lg border border-slate-200 bg-slate-50 p-3.5">
+                  <div className="text-xs font-bold text-slate-600">웹앱 제목</div>
+                  <p className="mt-1 font-bold text-slate-900">
+                    {portfolio.plan.appTitle || '제목 미입력'}
+                  </p>
+                </div>
+                <div className="rounded-lg border border-slate-200 bg-slate-50 p-3.5">
+                  <div className="text-xs font-bold text-slate-600">웹앱 화면 구성 및 구축 절차</div>
+                  <p className="mt-1 whitespace-pre-wrap text-xs leading-relaxed text-slate-800 sm:text-sm">
+                    {portfolio.plan.screenComposition}
+                  </p>
+                </div>
+              </div>
+
+              <div className="grid gap-3.5 sm:grid-cols-2">
+                <div className="rounded-lg border border-slate-200 bg-slate-50 p-3.5">
+                  <div className="text-xs font-bold text-slate-600">① 구현할 기능</div>
+                  <p className="mt-1 whitespace-pre-wrap text-xs leading-relaxed text-slate-800 sm:text-sm">
+                    {portfolio.plan.featuresToImplement}
+                  </p>
+                </div>
+                <div className="rounded-lg border border-slate-200 bg-slate-50 p-3.5">
+                  <div className="text-xs font-bold text-slate-600">② 저장할 데이터</div>
+                  <p className="mt-1 whitespace-pre-wrap text-xs leading-relaxed text-slate-800 sm:text-sm">
+                    {portfolio.plan.dataToStore}
+                  </p>
+                </div>
+                <div className="rounded-lg border border-slate-200 bg-slate-50 p-3.5">
+                  <div className="text-xs font-bold text-slate-600">③ 제약사항</div>
+                  <p className="mt-1 whitespace-pre-wrap text-xs leading-relaxed text-slate-800 sm:text-sm">
+                    {portfolio.plan.constraints}
+                  </p>
+                </div>
+                <div className="rounded-lg border border-slate-200 bg-slate-50 p-3.5">
+                  <div className="text-xs font-bold text-slate-600">④ 적용할 프로그래밍 원리</div>
+                  <p className="mt-1 whitespace-pre-wrap text-xs leading-relaxed text-slate-800 sm:text-sm">
+                    {portfolio.plan.programmingPrinciples}
+                  </p>
+                </div>
+              </div>
+
+              <div className="rounded-lg border border-slate-200 bg-slate-50 p-3.5">
+                <div className="text-xs font-bold text-slate-600">프롬프트</div>
+                <pre
+                  className={
+                    isPrintView
+                      ? 'mt-1.5 whitespace-pre-wrap break-words font-sans text-xs leading-relaxed text-slate-800'
+                      : 'mt-1.5 max-h-72 overflow-auto whitespace-pre-wrap break-words font-sans text-xs leading-relaxed text-slate-800 print:max-h-none print:overflow-visible'
+                  }
+                >
+                  {promptText}
+                </pre>
+              </div>
+            </div>
+          )}
+
+          {!isPrintView && evalState && stageNotesDraft && onSelectStageRubric && onStageNoteChange && onSaveStageNote && (
+            <StageEvaluationMenu
+              stageLabel="앱 기획서 평가"
+              subtitle="화면 구성, 기능·데이터·제약사항·프로그래밍 원리 및 프롬프트 설계를 평가합니다."
+              rubric={evalState.planRubric}
+              note={stageNotesDraft.plan}
+              saving={savingStage === 'plan'}
+              notice={stageNotices?.plan ?? null}
+              onSelectRubric={(level) => onSelectStageRubric('plan', level)}
+              onNoteChange={(val) => onStageNoteChange('plan', val)}
+              onSaveNote={() => onSaveStageNote('plan')}
+              showRubricGuide
+            />
+          )}
+        </section>
+
+        {/* 3단계: 수정하기 (테스트 및 수정 보완) */}
+        <section className={isPrintView ? 'py-6' : 'p-5 sm:p-7'}>
+          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 pb-2.5">
+            <div>
+              <div className="font-mono-tabular text-[11px] font-bold text-blue-700">STEP 03</div>
+              <h3 className="text-base font-extrabold text-slate-950 sm:text-lg">
+                3. 수정하기 (테스트 및 수정 보완)
+              </h3>
+            </div>
+            {portfolio.revision && (
+              <span className="rounded-md bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-700 font-mono-tabular">
+                수정하기 제출: {new Date(portfolio.revision.updatedAt).toLocaleDateString('ko-KR')}
+              </span>
+            )}
+          </div>
+
+          {!portfolio.revision ? (
+            <div className="mt-4 rounded-lg border border-dashed border-slate-300 bg-slate-50 px-4 py-6 text-center text-sm text-slate-500">
+              아직 3단계 [수정하기] 제출 내역이 없습니다.
+            </div>
+          ) : (
+            <div className="mt-4 space-y-5 text-sm">
+              {/* 전/후 화면 캡처 */}
+              <div>
+                <div className="text-xs font-bold text-slate-600">
+                  웹앱 화면 변화 비교 (첫 프롬프트 결과 → 수정 후 결과)
+                </div>
+                <div className="mt-2 grid gap-4 sm:grid-cols-2">
+                  <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 break-inside-avoid">
+                    <div className="mb-2 flex items-center justify-between gap-2">
+                      <span className="text-xs font-semibold text-slate-700">첫 프롬프트 결과 화면</span>
+                      {!isPrintView && onZoomImage && (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            onZoomImage({
+                              label: `${formatFullAuthorLabel(portfolio)} · 첫 프롬프트 결과 화면`,
+                              src: portfolio.revision!.beforeImage,
+                            })
+                          }
+                          className="inline-flex items-center gap-1 rounded border border-slate-300 bg-white px-2 py-1 text-[11px] font-medium text-slate-700 hover:bg-slate-100 cursor-pointer print:hidden"
+                        >
+                          <ZoomIn className="h-3 w-3" />
+                          <span>크게 보기</span>
+                        </button>
+                      )}
+                    </div>
+                    <div
+                      onClick={() => {
+                        if (!isPrintView && onZoomImage) {
+                          onZoomImage({
+                            label: `${formatFullAuthorLabel(portfolio)} · 첫 프롬프트 결과 화면`,
+                            src: portfolio.revision!.beforeImage,
+                          });
+                        }
+                      }}
+                      className={`overflow-hidden rounded border border-slate-200 bg-white ${
+                        isPrintView ? '' : 'cursor-zoom-in'
+                      }`}
+                    >
+                      <img
+                        src={portfolio.revision.beforeImage}
+                        alt="첫 프롬프트 결과 웹앱 화면"
+                        className="max-h-64 w-full object-contain bg-slate-100"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 break-inside-avoid">
+                    <div className="mb-2 flex items-center justify-between gap-2">
+                      <span className="text-xs font-semibold text-slate-700">수정 결과 바뀐 웹앱 화면</span>
+                      {!isPrintView && onZoomImage && (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            onZoomImage({
+                              label: `${formatFullAuthorLabel(portfolio)} · 수정 결과 바뀐 화면`,
+                              src: portfolio.revision!.afterImage,
+                            })
+                          }
+                          className="inline-flex items-center gap-1 rounded border border-slate-300 bg-white px-2 py-1 text-[11px] font-medium text-slate-700 hover:bg-slate-100 cursor-pointer print:hidden"
+                        >
+                          <ZoomIn className="h-3 w-3" />
+                          <span>크게 보기</span>
+                        </button>
+                      )}
+                    </div>
+                    <div
+                      onClick={() => {
+                        if (!isPrintView && onZoomImage) {
+                          onZoomImage({
+                            label: `${formatFullAuthorLabel(portfolio)} · 수정 결과 바뀐 화면`,
+                            src: portfolio.revision!.afterImage,
+                          });
+                        }
+                      }}
+                      className={`overflow-hidden rounded border border-slate-200 bg-white ${
+                        isPrintView ? '' : 'cursor-zoom-in'
+                      }`}
+                    >
+                      <img
+                        src={portfolio.revision.afterImage}
+                        alt="수정 결과 바뀐 웹앱 화면"
+                        className="max-h-64 w-full object-contain bg-slate-100"
+                      />
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* 테스트한 것 / 수정한 것 */}
+              <div className="grid gap-3.5 sm:grid-cols-2">
+                <div className="rounded-lg border border-slate-200 bg-slate-50 p-3.5">
+                  <div className="text-xs font-bold text-slate-600">① 웹앱을 사용해 보고 테스트한 것</div>
+                  <p className="mt-1.5 whitespace-pre-wrap text-xs leading-relaxed text-slate-900 sm:text-sm">
+                    {portfolio.revision.testedContent}
+                  </p>
+                </div>
+                <div className="rounded-lg border border-slate-200 bg-slate-50 p-3.5">
+                  <div className="text-xs font-bold text-slate-600">② 테스트 후 수정한 것</div>
+                  <p className="mt-1.5 whitespace-pre-wrap text-xs leading-relaxed text-slate-900 sm:text-sm">
+                    {portfolio.revision.fixedAfterTest}
+                  </p>
+                </div>
+              </div>
+
+              {/* 수정 이유와 적용 결과 */}
+              <div className="rounded-lg border border-slate-200 bg-slate-50 p-3.5">
+                <div className="text-xs font-bold text-slate-600">수정한 이유와 적용 결과</div>
+                <p className="mt-1.5 whitespace-pre-wrap leading-relaxed text-slate-900">
+                  {portfolio.revision.reasonAndResult}
+                </p>
+              </div>
+            </div>
+          )}
+
+          {!isPrintView && evalState && stageNotesDraft && onSelectStageRubric && onStageNoteChange && onSaveStageNote && (
+            <StageEvaluationMenu
+              stageLabel="수정하기 평가"
+              subtitle="실제 사용 테스트, 오류·개선 반영, 수정 이유 및 결과 설명의 충실도를 평가합니다."
+              rubric={evalState.revisionRubric}
+              note={stageNotesDraft.revision}
+              saving={savingStage === 'revision'}
+              notice={stageNotices?.revision ?? null}
+              onSelectRubric={(level) => onSelectStageRubric('revision', level)}
+              onNoteChange={(val) => onStageNoteChange('revision', val)}
+              onSaveNote={() => onSaveStageNote('revision')}
+            />
+          )}
+        </section>
+      </div>
+    </article>
+  );
+}
+
 interface TeacherReviewProps {
   backendMode: BackendMode;
   authenticated: boolean;
   plans: AppPlanSubmission[];
   revisions: AppRevisionSubmission[];
   galleryItems: GalleryItem[];
+  evaluations: StageEvaluation[];
+  printMode: boolean;
   loading: boolean;
   authError: string | null;
   onAuthenticated: () => void;
   onLoggedOut: () => void;
   onRefresh: () => void;
+  onPrintModeChange: (printing: boolean) => void;
   onUpdatePlan: (updated: AppPlanSubmission) => void;
   onRemovePlan: (id: string) => void;
   onUpdateRevision: (updated: AppRevisionSubmission) => void;
   onRemoveRevision: (id: string) => void;
   onUpdateGalleryItem: (updated: GalleryItem) => void;
   onRemoveGalleryItem: (id: string) => void;
+  onUpdateEvaluation: (updated: StageEvaluation) => void;
 }
 
 type TeacherTab = 'portfolio' | 'gallery';
@@ -271,17 +843,21 @@ export default function TeacherReview({
   plans,
   revisions,
   galleryItems,
+  evaluations,
+  printMode,
   loading,
   authError,
   onAuthenticated,
   onLoggedOut,
   onRefresh,
+  onPrintModeChange,
   onUpdatePlan,
   onRemovePlan,
   onUpdateRevision,
   onRemoveRevision,
   onUpdateGalleryItem,
   onRemoveGalleryItem,
+  onUpdateEvaluation,
 }: TeacherReviewProps) {
   const [activeTab, setActiveTab] = useState<TeacherTab>('portfolio');
   const [password, setPassword] = useState('');
@@ -292,17 +868,19 @@ export default function TeacherReview({
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedStudentKey, setSelectedStudentKey] = useState<string | null>(null);
 
-  const [rubricDraft, setRubricDraft] = useState<RubricLevel>('미확인');
-  const [noteDraft, setNoteDraft] = useState('');
-  const [savingReview, setSavingReview] = useState(false);
-  const [reviewNotice, setReviewNotice] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null);
-  const [confirmDeletePlanId, setConfirmDeletePlanId] = useState<string | null>(null);
+  const [stageNotesDraft, setStageNotesDraft] = useState<Record<EvaluationStage, string>>({
+    discovery: '',
+    plan: '',
+    revision: '',
+  });
+  const [savingStage, setSavingStage] = useState<EvaluationStage | null>(null);
+  const [stageNotices, setStageNotices] = useState<
+    Partial<Record<EvaluationStage, { kind: 'ok' | 'err'; text: string } | null>>
+  >({});
 
-  const [revisionStatusDraft, setRevisionStatusDraft] = useState<RevisionReviewStatus>('미확인');
-  const [revisionNoteDraft, setRevisionNoteDraft] = useState('');
-  const [savingRevisionReview, setSavingRevisionReview] = useState(false);
-  const [revisionNotice, setRevisionNotice] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null);
+  const [confirmDeletePlanId, setConfirmDeletePlanId] = useState<string | null>(null);
   const [confirmDeleteRevisionId, setConfirmDeleteRevisionId] = useState<string | null>(null);
+  const [deleteNotice, setDeleteNotice] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null);
   const [zoomedImage, setZoomedImage] = useState<{ label: string; src: string } | null>(null);
 
   const [gallerySearch, setGallerySearch] = useState('');
@@ -312,6 +890,14 @@ export default function TeacherReview({
   const [galleryNotice, setGalleryNotice] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null);
 
   const portfolios = useMemo(() => buildUnifiedPortfolios(plans, revisions), [plans, revisions]);
+
+  const evaluationMap = useMemo(() => {
+    const map = new Map<string, StageEvaluation>();
+    for (const item of evaluations) {
+      map.set(item.studentKey, item);
+    }
+    return map;
+  }, [evaluations]);
 
   const classOptions = useMemo(() => {
     const map = new Map<
@@ -365,27 +951,32 @@ export default function TeacherReview({
     return filteredPortfolios.findIndex((p) => p.key === selectedPortfolio.key);
   }, [filteredPortfolios, selectedPortfolio]);
 
-  useEffect(() => {
-    if (selectedPortfolio?.plan) {
-      setRubricDraft(selectedPortfolio.plan.rubricLevel);
-      setNoteDraft(selectedPortfolio.plan.teacherNote);
-    } else {
-      setRubricDraft('미확인');
-      setNoteDraft('');
-    }
-    setReviewNotice(null);
-    setConfirmDeletePlanId(null);
+  const selectedEvalState = useMemo(() => {
+    if (!selectedPortfolio) return undefined;
+    return resolveEvaluationForPortfolio(selectedPortfolio, evaluationMap);
+  }, [selectedPortfolio, evaluationMap]);
 
-    if (selectedPortfolio?.revision) {
-      setRevisionStatusDraft(selectedPortfolio.revision.reviewStatus);
-      setRevisionNoteDraft(selectedPortfolio.revision.teacherNote);
-    } else {
-      setRevisionStatusDraft('미확인');
-      setRevisionNoteDraft('');
+  useEffect(() => {
+    if (!selectedPortfolio) {
+      setStageNotesDraft({ discovery: '', plan: '', revision: '' });
+      setStageNotices({});
+      setConfirmDeletePlanId(null);
+      setConfirmDeleteRevisionId(null);
+      setDeleteNotice(null);
+      if (printMode) onPrintModeChange(false);
+      return;
     }
-    setRevisionNotice(null);
+    const resolved = resolveEvaluationForPortfolio(selectedPortfolio, evaluationMap);
+    setStageNotesDraft({
+      discovery: resolved.discoveryNote,
+      plan: resolved.planNote,
+      revision: resolved.revisionNote,
+    });
+    setStageNotices({});
+    setConfirmDeletePlanId(null);
     setConfirmDeleteRevisionId(null);
-  }, [selectedPortfolio]);
+    setDeleteNotice(null);
+  }, [selectedPortfolio?.key]); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function handleLoginSubmit(e: FormEvent) {
     e.preventDefault();
@@ -410,35 +1001,84 @@ export default function TeacherReview({
   }
 
   async function handleLogout() {
+    onPrintModeChange(false);
     await logoutTeacher();
     onLoggedOut();
   }
 
-  async function handleSavePlanReview() {
-    if (!selectedPortfolio?.plan) return;
-    setSavingReview(true);
-    setReviewNotice(null);
+  async function persistStageEvaluation(stage: EvaluationStage, rubric: RubricLevel, note: string) {
+    if (!selectedPortfolio) return;
+    setSavingStage(stage);
+    setStageNotices((prev) => ({ ...prev, [stage]: null }));
 
     try {
-      const res = await saveTeacherReviewToApi(selectedPortfolio.plan.id, rubricDraft, noteDraft);
+      const res = await saveStageEvaluationToApi({
+        studentKey: selectedPortfolio.key,
+        stage,
+        rubric,
+        note,
+        planId: selectedPortfolio.plan?.id ?? null,
+        revisionId: selectedPortfolio.revision?.id ?? null,
+      });
+
       if (res.unauthorized) {
+        onPrintModeChange(false);
         onLoggedOut();
         return;
       }
-      if (res.ok && res.plan) {
-        onUpdatePlan(res.plan);
-        setReviewNotice({ kind: 'ok', text: '2차시 앱 기획서 평가 내용이 D1 저장소에 반영되었습니다.' });
+
+      if (res.ok && res.evaluation) {
+        onUpdateEvaluation(res.evaluation);
+        if (stage === 'plan' && selectedPortfolio.plan) {
+          onUpdatePlan({
+            ...selectedPortfolio.plan,
+            rubricLevel: rubric,
+            teacherNote: note,
+          });
+        }
+        if (stage === 'revision' && selectedPortfolio.revision) {
+          onUpdateRevision({
+            ...selectedPortfolio.revision,
+            teacherNote: note,
+          });
+        }
+        const stageTitle =
+          stage === 'discovery' ? '문제탐색' : stage === 'plan' ? '앱 기획서' : '수정하기';
+        setStageNotices((prev) => ({
+          ...prev,
+          [stage]: { kind: 'ok', text: `${stageTitle} 평가(${rubric})가 저장되었습니다.` },
+        }));
       } else {
-        setReviewNotice({ kind: 'err', text: res.error || '평가 확인 저장에 실패했습니다.' });
+        setStageNotices((prev) => ({
+          ...prev,
+          [stage]: { kind: 'err', text: res.error || '평가 저장에 실패했습니다.' },
+        }));
       }
     } finally {
-      setSavingReview(false);
+      setSavingStage(null);
     }
+  }
+
+  function handleSelectStageRubric(stage: EvaluationStage, level: RubricLevel) {
+    const note = stageNotesDraft[stage];
+    void persistStageEvaluation(stage, level, note);
+  }
+
+  function handleSaveStageNote(stage: EvaluationStage) {
+    if (!selectedEvalState) return;
+    const rubric =
+      stage === 'discovery'
+        ? selectedEvalState.discoveryRubric
+        : stage === 'plan'
+          ? selectedEvalState.planRubric
+          : selectedEvalState.revisionRubric;
+    void persistStageEvaluation(stage, rubric, stageNotesDraft[stage]);
   }
 
   async function handleDeletePlan(id: string) {
     const res = await deletePlanFromApi(id);
     if (res.unauthorized) {
+      onPrintModeChange(false);
       onLoggedOut();
       return;
     }
@@ -449,39 +1089,14 @@ export default function TeacherReview({
         setSelectedStudentKey(null);
       }
     } else {
-      setReviewNotice({ kind: 'err', text: res.error || '응답 삭제에 실패했습니다.' });
-    }
-  }
-
-  async function handleSaveRevisionReview() {
-    if (!selectedPortfolio?.revision) return;
-    setSavingRevisionReview(true);
-    setRevisionNotice(null);
-
-    try {
-      const res = await saveTeacherRevisionReviewToApi(
-        selectedPortfolio.revision.id,
-        revisionStatusDraft,
-        revisionNoteDraft,
-      );
-      if (res.unauthorized) {
-        onLoggedOut();
-        return;
-      }
-      if (res.ok && res.revision) {
-        onUpdateRevision(res.revision);
-        setRevisionNotice({ kind: 'ok', text: '3차시 수정하기 교사 확인 내용이 D1 저장소에 반영되었습니다.' });
-      } else {
-        setRevisionNotice({ kind: 'err', text: res.error || '교사 확인 저장에 실패했습니다.' });
-      }
-    } finally {
-      setSavingRevisionReview(false);
+      setDeleteNotice({ kind: 'err', text: res.error || '1·2차시 응답 삭제에 실패했습니다.' });
     }
   }
 
   async function handleDeleteRevision(id: string) {
     const res = await deleteRevisionFromApi(id);
     if (res.unauthorized) {
+      onPrintModeChange(false);
       onLoggedOut();
       return;
     }
@@ -492,7 +1107,7 @@ export default function TeacherReview({
         setSelectedStudentKey(null);
       }
     } else {
-      setRevisionNotice({ kind: 'err', text: res.error || '수정하기 기록 삭제에 실패했습니다.' });
+      setDeleteNotice({ kind: 'err', text: res.error || '3차시 수정하기 기록 삭제에 실패했습니다.' });
     }
   }
 
@@ -570,6 +1185,8 @@ export default function TeacherReview({
       '시급성 이유',
       '공공의 이익 이유',
       '탐구 질문',
+      '1단계 문제탐색 평가(상/중/하)',
+      '1단계 교사 메모',
       '웹앱 화면 구성',
       '구현할 기능',
       '저장할 데이터',
@@ -577,46 +1194,54 @@ export default function TeacherReview({
       '적용할 프로그래밍 원리',
       '프롬프트',
       '안전 약속 확인',
-      '2차시 평가(상/중/하)',
-      '2차시 교사 메모',
+      '2단계 앱 기획서 평가(상/중/하)',
+      '2단계 교사 메모',
       '3차시 웹앱 테스트한 것',
       '3차시 테스트 후 수정한 것',
       '3차시 수정 이유 및 적용 결과',
-      '3차시 확인 상태',
-      '3차시 교사 메모',
+      '3단계 수정하기 평가(상/중/하)',
+      '3단계 교사 메모',
       '최근 제출 시각',
     ];
-    const rows = filteredPortfolios.map((item) => [
-      item.grade,
-      item.classRoom,
-      item.studentNumber,
-      item.studentIdBadge,
-      item.studentName,
-      item.appTitle,
-      item.plan?.discoverySource ?? '',
-      item.plan?.problemSummary ?? '',
-      item.plan?.urgencyReason ?? '',
-      item.plan?.publicBenefitReason ?? '',
-      item.plan?.inquiryQuestion ?? '',
-      item.plan?.screenComposition ?? '',
-      item.featuresToImplement,
-      item.plan?.dataToStore ?? '',
-      item.plan?.constraints ?? '',
-      item.plan?.programmingPrinciples ?? '',
-      item.plan ? item.plan.finalPrompt?.trim() || item.plan.promptDraft?.trim() || buildPromptDraft(item.plan) : '',
-      item.plan ? (item.plan.safetyChecked ? '확인' : '미확인') : '',
-      item.plan?.rubricLevel ?? '',
-      item.plan?.teacherNote ?? '',
-      item.revision?.testedContent ?? '',
-      item.revision?.fixedAfterTest ?? '',
-      item.revision?.reasonAndResult ?? '',
-      item.revision?.reviewStatus ?? '',
-      item.revision?.teacherNote ?? '',
-      new Date(item.latestUpdatedAt).toLocaleString('ko-KR'),
-    ]);
+    const rows = filteredPortfolios.map((item) => {
+      const ev = resolveEvaluationForPortfolio(item, evaluationMap);
+      return [
+        item.grade,
+        item.classRoom,
+        item.studentNumber,
+        item.studentIdBadge,
+        item.studentName,
+        item.appTitle,
+        item.plan?.discoverySource ?? '',
+        item.plan?.problemSummary ?? '',
+        item.plan?.urgencyReason ?? '',
+        item.plan?.publicBenefitReason ?? '',
+        item.plan?.inquiryQuestion ?? '',
+        ev.discoveryRubric,
+        ev.discoveryNote,
+        item.plan?.screenComposition ?? '',
+        item.featuresToImplement,
+        item.plan?.dataToStore ?? '',
+        item.plan?.constraints ?? '',
+        item.plan?.programmingPrinciples ?? '',
+        item.plan
+          ? item.plan.finalPrompt?.trim() || item.plan.promptDraft?.trim() || buildPromptDraft(item.plan)
+          : '',
+        item.plan ? (item.plan.safetyChecked ? '확인' : '미확인') : '',
+        ev.planRubric,
+        ev.planNote,
+        item.revision?.testedContent ?? '',
+        item.revision?.fixedAfterTest ?? '',
+        item.revision?.reasonAndResult ?? '',
+        ev.revisionRubric,
+        ev.revisionNote,
+        new Date(item.latestUpdatedAt).toLocaleString('ko-KR'),
+      ];
+    });
 
     const csvContent =
-      '\uFEFF' + [headers, ...rows].map((row) => row.map((cell) => escapeCsvCell(String(cell))).join(',')).join('\r\n');
+      '\uFEFF' +
+      [headers, ...rows].map((row) => row.map((cell) => escapeCsvCell(String(cell))).join(',')).join('\r\n');
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
@@ -631,12 +1256,72 @@ export default function TeacherReview({
   const pendingGalleryCount = galleryItems.filter((g) => g.status === 'pending').length;
   const approvedGalleryCount = galleryItems.filter((g) => g.status === 'approved').length;
 
+  // 전용 출력 화면: 출력하기 클릭 시 학생이 제출한 보고서만 출력되는 깔끔한 전용 화면으로 연결
+  if (authenticated && printMode && selectedPortfolio) {
+    return (
+      <section className="min-h-screen bg-slate-200/70 px-4 py-6 sm:px-6 print:min-h-0 print:bg-white print:p-0">
+        <div className="mx-auto mb-5 flex max-w-[210mm] flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-300 bg-white px-4 py-3 shadow-sm print:hidden">
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => onPrintModeChange(false)}
+              className="inline-flex min-h-[40px] items-center gap-1.5 rounded-lg border border-slate-300 bg-slate-50 px-3.5 py-2 text-xs font-bold text-slate-800 hover:bg-slate-100 transition-colors cursor-pointer"
+            >
+              <ArrowLeft className="h-4 w-4" />
+              <span>교사확인으로 돌아가기</span>
+            </button>
+            <span className="text-xs font-semibold text-slate-600 hidden sm:inline">
+              출력 전용 화면 · {formatFullAuthorLabel(selectedPortfolio)}
+            </span>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              disabled={selectedPortfolioIndex <= 0}
+              onClick={() => {
+                const prev = filteredPortfolios[selectedPortfolioIndex - 1];
+                if (prev) setSelectedStudentKey(prev.key);
+              }}
+              className="inline-flex min-h-[40px] items-center gap-1 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-40 cursor-pointer"
+            >
+              <ChevronLeft className="h-4 w-4" />
+              <span>이전 학생</span>
+            </button>
+            <button
+              type="button"
+              disabled={selectedPortfolioIndex < 0 || selectedPortfolioIndex >= filteredPortfolios.length - 1}
+              onClick={() => {
+                const next = filteredPortfolios[selectedPortfolioIndex + 1];
+                if (next) setSelectedStudentKey(next.key);
+              }}
+              className="inline-flex min-h-[40px] items-center gap-1 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-40 cursor-pointer"
+            >
+              <span>다음 학생</span>
+              <ChevronRight className="h-4 w-4" />
+            </button>
+            <button
+              type="button"
+              onClick={() => window.print()}
+              className="inline-flex min-h-[40px] items-center gap-1.5 rounded-lg bg-blue-700 px-4 py-2 text-xs font-bold text-white hover:bg-blue-800 transition-colors cursor-pointer"
+            >
+              <Printer className="h-4 w-4" />
+              <span>인쇄 / PDF 저장</span>
+            </button>
+          </div>
+        </div>
+
+        <StudentReportContent portfolio={selectedPortfolio} isPrintView />
+      </section>
+    );
+  }
+
   return (
-    <section className="mx-auto max-w-6xl px-4 py-8 sm:px-6 sm:py-10">
-      <div className="flex flex-wrap items-end justify-between gap-4 border-b border-slate-300 pb-6">
+    <section className="mx-auto max-w-6xl px-4 py-8 sm:px-6 sm:py-10 print:max-w-none print:p-0">
+      <div className="flex flex-wrap items-end justify-between gap-4 border-b border-slate-300 pb-6 print:hidden">
         <div>
           <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 font-mono-tabular text-xs font-semibold text-slate-600">
-            <span className="text-blue-700">교사확인 · 통합 프로젝트 점검 및 갤러리 인증</span>
+            <span className="text-blue-700">교사확인 · 통합 프로젝트 점검 및 단계별 평가</span>
             <span aria-hidden="true">·</span>
             <span>
               {backendMode === 'checking'
@@ -652,7 +1337,7 @@ export default function TeacherReview({
             교사 확인 및 학생별 통합 포트폴리오
           </h1>
           <p className="mt-1.5 text-sm text-slate-600">
-            학번순·반별로 정렬된 학생 카드에서 학생이 작성한 문제탐색, 앱 기획서, 수정하기(테스트·수정 내용)를 한 페이지로 확인하세요.
+            학생이 작성한 문제탐색 · 앱 기획서 · 수정하기 보고서를 한 페이지로 확인하고, 각 단계별로 상·중·하 평가를 입력하거나 보고서만 출력할 수 있습니다.
           </p>
         </div>
 
@@ -693,7 +1378,7 @@ export default function TeacherReview({
       </div>
 
       {backendMode !== 'ready' && backendMode !== 'checking' && (
-        <div className="mt-5 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3.5 text-xs leading-relaxed text-amber-900 sm:text-sm">
+        <div className="mt-5 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3.5 text-xs leading-relaxed text-amber-900 sm:text-sm print:hidden">
           <div className="flex items-start gap-2.5">
             <Clock className="mt-0.5 h-4 w-4 shrink-0 text-amber-700" />
             <div>
@@ -716,7 +1401,7 @@ export default function TeacherReview({
 
       {/* Teacher Login Panel */}
       {!authenticated ? (
-        <div className="mx-auto mt-8 max-w-md rounded-2xl border border-slate-200 bg-white p-6 sm:p-8">
+        <div className="mx-auto mt-8 max-w-md rounded-2xl border border-slate-200 bg-white p-6 sm:p-8 print:hidden">
           <div className="flex items-center gap-2 text-sm font-semibold text-slate-900">
             <Lock className="h-4 w-4 text-blue-700 shrink-0" />
             <span>교사 인증 로그인</span>
@@ -762,10 +1447,13 @@ export default function TeacherReview({
         </div>
       ) : (
         <>
-          <div className="mt-6 flex flex-wrap gap-2 border-b border-slate-200 pb-4">
+          <div className="mt-6 flex flex-wrap gap-2 border-b border-slate-200 pb-4 print:hidden">
             <button
               type="button"
-              onClick={() => setActiveTab('portfolio')}
+              onClick={() => {
+                setActiveTab('portfolio');
+                onPrintModeChange(false);
+              }}
               className={`min-h-[44px] rounded-lg px-4 py-2 text-xs font-semibold transition-colors cursor-pointer sm:text-sm ${
                 activeTab === 'portfolio'
                   ? 'bg-slate-900 text-white'
@@ -776,7 +1464,10 @@ export default function TeacherReview({
             </button>
             <button
               type="button"
-              onClick={() => setActiveTab('gallery')}
+              onClick={() => {
+                setActiveTab('gallery');
+                onPrintModeChange(false);
+              }}
               className={`min-h-[44px] rounded-lg px-4 py-2 text-xs font-semibold transition-colors cursor-pointer sm:text-sm ${
                 activeTab === 'gallery'
                   ? 'bg-slate-900 text-white'
@@ -789,23 +1480,26 @@ export default function TeacherReview({
           </div>
 
           {authError && (
-            <div role="alert" className="mt-5 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
+            <div role="alert" className="mt-5 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800 print:hidden">
               {authError}
             </div>
           )}
 
           {activeTab === 'portfolio' ? (
             selectedPortfolio ? (
-              /* 학생 1명의 문제탐색 + 앱 기획서 + 수정하기 통합 단일 페이지 */
-              <div className="mt-6 space-y-6">
-                <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-300 bg-white px-4 py-3.5 sm:px-6">
+              /* 학생 1명의 문제탐색 + 앱 기획서 + 수정하기 통합 단일 보고서 페이지 */
+              <div className="mt-6 space-y-5 print:mt-0">
+                <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-300 bg-white px-4 py-3.5 sm:px-6 print:hidden">
                   <button
                     type="button"
-                    onClick={() => setSelectedStudentKey(null)}
+                    onClick={() => {
+                      onPrintModeChange(false);
+                      setSelectedStudentKey(null);
+                    }}
                     className="inline-flex min-h-[42px] items-center gap-1.5 rounded-lg border border-slate-300 bg-slate-50 px-3.5 py-2 text-xs font-bold text-slate-800 hover:bg-slate-100 transition-colors cursor-pointer"
                   >
                     <ArrowLeft className="h-4 w-4" />
-                    <span>제출 학생 목록(갤러리)으로</span>
+                    <span>제출 학생 목록으로</span>
                   </button>
 
                   <div className="flex flex-wrap items-center gap-2">
@@ -835,77 +1529,52 @@ export default function TeacherReview({
                     </button>
                     <button
                       type="button"
-                      onClick={() => window.print()}
-                      className="inline-flex min-h-[40px] items-center gap-1.5 rounded-lg bg-slate-900 px-3.5 py-1.5 text-xs font-semibold text-white hover:bg-slate-800 cursor-pointer"
+                      onClick={() => {
+                        onPrintModeChange(true);
+                        window.scrollTo({ top: 0, behavior: 'smooth' });
+                      }}
+                      className="inline-flex min-h-[40px] items-center gap-1.5 rounded-lg bg-blue-700 px-4 py-1.5 text-xs font-bold text-white hover:bg-blue-800 transition-colors cursor-pointer"
                     >
                       <Printer className="h-3.5 w-3.5" />
-                      <span>페이지 인쇄</span>
+                      <span>출력하기</span>
                     </button>
                   </div>
                 </div>
 
-                {/* 학생 통합 헤더 */}
-                <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5 text-white sm:p-7">
-                  <div className="flex flex-wrap items-center gap-2 font-mono-tabular text-xs text-blue-300">
-                    <span>{formatGradeText(selectedPortfolio.grade)}</span>
-                    <span aria-hidden="true">·</span>
-                    <span>{formatClassText(selectedPortfolio.classRoom)}</span>
-                    {selectedPortfolio.studentNumber && (
-                      <>
-                        <span aria-hidden="true">·</span>
-                        <span>{formatNumberText(selectedPortfolio.studentNumber)}</span>
-                      </>
-                    )}
-                    {selectedPortfolio.studentIdBadge && (
-                      <>
-                        <span aria-hidden="true">·</span>
-                        <span>학번 {selectedPortfolio.studentIdBadge}</span>
-                      </>
-                    )}
-                    <span aria-hidden="true">·</span>
-                    <span className="font-bold text-white">{selectedPortfolio.studentName}</span>
-                  </div>
+                <StudentReportContent
+                  portfolio={selectedPortfolio}
+                  onZoomImage={setZoomedImage}
+                  evalState={selectedEvalState}
+                  stageNotesDraft={stageNotesDraft}
+                  savingStage={savingStage}
+                  stageNotices={stageNotices}
+                  onSelectStageRubric={handleSelectStageRubric}
+                  onStageNoteChange={(stage, val) =>
+                    setStageNotesDraft((prev) => ({ ...prev, [stage]: val }))
+                  }
+                  onSaveStageNote={handleSaveStageNote}
+                />
 
-                  <h2 className="mt-2 text-2xl font-extrabold tracking-tight text-white sm:text-3xl">
-                    {selectedPortfolio.appTitle || '웹앱 제목 미입력'}
-                  </h2>
+                {/* 하단 기록 관리 (삭제 기능 - 출력 시 숨김) */}
+                {(selectedPortfolio.plan || selectedPortfolio.revision) && (
+                  <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3.5 sm:px-6 print:hidden">
+                    <span className="text-xs font-medium text-slate-500">제출 기록 관리</span>
 
-                  <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-300">
-                    <span>1·2차시 문제탐색·앱 기획서: {selectedPortfolio.plan ? '제출 완료' : '미제출'}</span>
-                    <span aria-hidden="true">·</span>
-                    <span>3차시 수정하기: {selectedPortfolio.revision ? '제출 완료' : '미제출'}</span>
-                    <span aria-hidden="true">·</span>
-                    <span className="font-mono-tabular">
-                      최근 제출 {new Date(selectedPortfolio.latestUpdatedAt).toLocaleString('ko-KR')}
-                    </span>
-                  </div>
-                </div>
-
-                {/* 1부: [1차시] 문제탐색 + [2차시] 앱 기획서 */}
-                <div className="rounded-xl border border-slate-300 bg-white p-5 sm:p-7 space-y-6">
-                  <div className="flex flex-wrap items-start justify-between gap-4 border-b border-slate-200 pb-4">
-                    <div>
-                      <div className="font-mono-tabular text-xs font-semibold text-blue-700">PART 01 · 02</div>
-                      <h3 className="mt-0.5 text-lg font-extrabold text-slate-950">
-                        [문제탐색] 및 [앱 기획서] 작성 내용
-                      </h3>
-                    </div>
-
-                    {selectedPortfolio.plan && (
-                      <div>
-                        {confirmDeletePlanId === selectedPortfolio.plan.id ? (
-                          <div className="flex items-center gap-2">
+                    <div className="flex flex-wrap items-center gap-2">
+                      {selectedPortfolio.plan &&
+                        (confirmDeletePlanId === selectedPortfolio.plan.id ? (
+                          <div className="flex items-center gap-1.5">
                             <button
                               type="button"
                               onClick={() => handleDeletePlan(selectedPortfolio.plan!.id)}
-                              className="min-h-[40px] rounded-lg bg-red-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-red-700 cursor-pointer"
+                              className="min-h-[38px] rounded-lg bg-red-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-red-700 cursor-pointer"
                             >
-                              삭제 확인
+                              1·2차시 삭제 확인
                             </button>
                             <button
                               type="button"
                               onClick={() => setConfirmDeletePlanId(null)}
-                              className="min-h-[40px] rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 cursor-pointer"
+                              className="min-h-[38px] rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 cursor-pointer"
                             >
                               취소
                             </button>
@@ -914,223 +1583,27 @@ export default function TeacherReview({
                           <button
                             type="button"
                             onClick={() => setConfirmDeletePlanId(selectedPortfolio.plan!.id)}
-                            className="inline-flex min-h-[40px] items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-1.5 text-xs text-slate-500 hover:border-red-200 hover:text-red-700 transition-colors cursor-pointer"
+                            className="inline-flex min-h-[38px] items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-1.5 text-xs text-slate-500 hover:border-red-200 hover:text-red-700 transition-colors cursor-pointer"
                           >
                             <Trash2 className="h-3.5 w-3.5" />
                             <span>1·2차시 기록 삭제</span>
                           </button>
-                        )}
-                      </div>
-                    )}
-                  </div>
+                        ))}
 
-                  {!selectedPortfolio.plan ? (
-                    <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 px-4 py-8 text-center text-sm text-slate-500">
-                      아직 1·2차시 [문제탐색] 및 [앱 기획서] 제출 내역이 없습니다.
-                    </div>
-                  ) : (
-                    <div className="space-y-6 text-sm">
-                      {/* 1차시 문제탐색 */}
-                      <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 sm:p-5 space-y-4">
-                        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 pb-2.5">
-                          <h4 className="text-xs font-bold text-blue-700">1. [문제탐색] 실생활 문제 및 탐구 질문</h4>
-                          <span className="text-xs font-medium text-slate-600">
-                            탐색 경로: {selectedPortfolio.plan.discoverySource}
-                          </span>
-                        </div>
-
-                        <div>
-                          <div className="text-xs font-semibold text-slate-500">선정한 실생활 문제</div>
-                          <p className="mt-1 whitespace-pre-wrap leading-relaxed text-slate-900">
-                            {selectedPortfolio.plan.problemSummary}
-                          </p>
-                        </div>
-
-                        <div className="grid gap-4 sm:grid-cols-2">
-                          <div>
-                            <div className="text-xs font-semibold text-slate-500">선정 기준 ① 시급성</div>
-                            <p className="mt-1 whitespace-pre-wrap text-xs leading-relaxed text-slate-800">
-                              {selectedPortfolio.plan.urgencyReason}
-                            </p>
-                          </div>
-                          <div>
-                            <div className="text-xs font-semibold text-slate-500">선정 기준 ② 공공의 이익</div>
-                            <p className="mt-1 whitespace-pre-wrap text-xs leading-relaxed text-slate-800">
-                              {selectedPortfolio.plan.publicBenefitReason}
-                            </p>
-                          </div>
-                        </div>
-
-                        <div>
-                          <div className="text-xs font-semibold text-slate-500">나의 탐구 질문</div>
-                          <p className="mt-1 whitespace-pre-wrap leading-relaxed text-slate-900">
-                            {selectedPortfolio.plan.inquiryQuestion}
-                          </p>
-                        </div>
-                      </div>
-
-                      {/* 2차시 앱 기획서 */}
-                      <div className="space-y-4">
-                        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 pb-2.5">
-                          <h4 className="text-xs font-bold text-blue-700">2. [앱 기획서] 웹앱 설계 및 프롬프트</h4>
-                          <span className="text-xs font-medium text-slate-600">
-                            {selectedPortfolio.plan.safetyChecked ? '디지털 안전 약속 확인함' : '안전 약속 미확인'}
-                          </span>
-                        </div>
-
-                        <div className="grid gap-4 sm:grid-cols-2">
-                          <div className="rounded-lg border border-slate-200 bg-white p-3.5">
-                            <div className="text-xs font-semibold text-slate-500">웹앱 제목</div>
-                            <p className="mt-1 font-bold text-slate-900">
-                              {selectedPortfolio.plan.appTitle || '제목 미입력'}
-                            </p>
-                          </div>
-                          <div className="rounded-lg border border-slate-200 bg-white p-3.5">
-                            <div className="text-xs font-semibold text-slate-500">웹앱 화면 구성 및 구축 절차</div>
-                            <p className="mt-1 whitespace-pre-wrap text-xs leading-relaxed text-slate-800">
-                              {selectedPortfolio.plan.screenComposition}
-                            </p>
-                          </div>
-                        </div>
-
-                        <div className="grid gap-4 sm:grid-cols-2">
-                          <div className="rounded-lg border border-slate-200 bg-white p-3.5">
-                            <div className="text-xs font-semibold text-slate-500">① 구현할 기능</div>
-                            <p className="mt-1 whitespace-pre-wrap text-xs leading-relaxed text-slate-800">
-                              {selectedPortfolio.plan.featuresToImplement}
-                            </p>
-                          </div>
-                          <div className="rounded-lg border border-slate-200 bg-white p-3.5">
-                            <div className="text-xs font-semibold text-slate-500">② 저장할 데이터</div>
-                            <p className="mt-1 whitespace-pre-wrap text-xs leading-relaxed text-slate-800">
-                              {selectedPortfolio.plan.dataToStore}
-                            </p>
-                          </div>
-                          <div className="rounded-lg border border-slate-200 bg-white p-3.5">
-                            <div className="text-xs font-semibold text-slate-500">③ 제약사항</div>
-                            <p className="mt-1 whitespace-pre-wrap text-xs leading-relaxed text-slate-800">
-                              {selectedPortfolio.plan.constraints}
-                            </p>
-                          </div>
-                          <div className="rounded-lg border border-slate-200 bg-white p-3.5">
-                            <div className="text-xs font-semibold text-slate-500">④ 적용할 프로그래밍 원리</div>
-                            <p className="mt-1 whitespace-pre-wrap text-xs leading-relaxed text-slate-800">
-                              {selectedPortfolio.plan.programmingPrinciples}
-                            </p>
-                          </div>
-                        </div>
-
-                        <div>
-                          <div className="text-xs font-semibold text-slate-500">프롬프트</div>
-                          <pre className="mt-1.5 max-h-72 overflow-auto whitespace-pre-wrap break-words rounded-lg border border-slate-200 bg-slate-50 p-3.5 font-sans text-xs leading-relaxed text-slate-800">
-                            {selectedPortfolio.plan.finalPrompt?.trim() ||
-                              selectedPortfolio.plan.promptDraft?.trim() ||
-                              buildPromptDraft(selectedPortfolio.plan)}
-                          </pre>
-                        </div>
-                      </div>
-
-                      {/* 2차시 교사 평가 기록 */}
-                      <div className="border-t border-slate-200 pt-5">
-                        <h4 className="text-xs font-bold text-slate-900">
-                          교사 평가 확인 기록 (2차시 앱 기획서)
-                        </h4>
-
-                        <div className="mt-3 grid grid-cols-2 gap-2.5 sm:grid-cols-4">
-                          {(['미확인', '상', '중', '하'] as RubricLevel[]).map((level) => {
-                            const active = rubricDraft === level;
-                            return (
-                              <button
-                                key={level}
-                                type="button"
-                                onClick={() => setRubricDraft(level)}
-                                className={`min-h-[44px] rounded-lg border px-3 py-2 text-xs font-semibold transition-colors cursor-pointer ${
-                                  active
-                                    ? 'border-blue-700 bg-blue-700 text-white'
-                                    : 'border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100'
-                                }`}
-                              >
-                                {level}
-                              </button>
-                            );
-                          })}
-                        </div>
-
-                        <div className="mt-2.5 space-y-1 text-xs text-slate-500">
-                          {RUBRIC_DESCRIPTIONS.map((item) => (
-                            <div key={item.level}>
-                              <span className="font-semibold text-slate-700">{item.level}:</span> {item.desc}
-                            </div>
-                          ))}
-                        </div>
-
-                        <div className="mt-3">
-                          <label htmlFor="teacherNote" className="block text-xs font-medium text-slate-700">
-                            교사 피드백 메모
-                          </label>
-                          <textarea
-                            id="teacherNote"
-                            rows={2}
-                            maxLength={1000}
-                            value={noteDraft}
-                            onChange={(e) => setNoteDraft(e.target.value)}
-                            placeholder="1·2차시 문제탐색 및 앱 기획서에 대한 피드백을 기록하세요."
-                            className="mt-1.5 w-full rounded-lg border border-slate-300 bg-white px-3.5 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 focus:border-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-600/20"
-                          />
-                        </div>
-
-                        <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                          <div className="text-xs">
-                            {reviewNotice && (
-                              <span
-                                className={`inline-flex items-start gap-1.5 ${
-                                  reviewNotice.kind === 'ok' ? 'text-emerald-700' : 'text-red-700'
-                                }`}
-                              >
-                                {reviewNotice.kind === 'ok' && <Check className="mt-0.5 h-3.5 w-3.5 shrink-0" />}
-                                <span>{reviewNotice.text}</span>
-                              </span>
-                            )}
-                          </div>
-                          <button
-                            type="button"
-                            onClick={handleSavePlanReview}
-                            disabled={savingReview}
-                            className="min-h-[42px] w-full rounded-lg bg-slate-900 px-4 py-2 text-xs font-semibold text-white hover:bg-slate-800 disabled:opacity-50 transition-colors cursor-pointer sm:w-auto"
-                          >
-                            {savingReview ? '저장 중...' : '2차시 확인 저장'}
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  )}
-                </div>
-
-                {/* 2부: [3차시] 수정하기 */}
-                <div className="rounded-xl border border-slate-300 bg-white p-5 sm:p-7 space-y-6">
-                  <div className="flex flex-wrap items-start justify-between gap-4 border-b border-slate-200 pb-4">
-                    <div>
-                      <div className="font-mono-tabular text-xs font-semibold text-blue-700">PART 03</div>
-                      <h3 className="mt-0.5 text-lg font-extrabold text-slate-950">
-                        [수정하기] 웹앱 테스트 및 수정 보완 내용
-                      </h3>
-                    </div>
-
-                    {selectedPortfolio.revision && (
-                      <div>
-                        {confirmDeleteRevisionId === selectedPortfolio.revision.id ? (
-                          <div className="flex items-center gap-2">
+                      {selectedPortfolio.revision &&
+                        (confirmDeleteRevisionId === selectedPortfolio.revision.id ? (
+                          <div className="flex items-center gap-1.5">
                             <button
                               type="button"
                               onClick={() => handleDeleteRevision(selectedPortfolio.revision!.id)}
-                              className="min-h-[40px] rounded-lg bg-red-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-red-700 cursor-pointer"
+                              className="min-h-[38px] rounded-lg bg-red-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-red-700 cursor-pointer"
                             >
-                              삭제 확인
+                              3차시 삭제 확인
                             </button>
                             <button
                               type="button"
                               onClick={() => setConfirmDeleteRevisionId(null)}
-                              className="min-h-[40px] rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 cursor-pointer"
+                              className="min-h-[38px] rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 cursor-pointer"
                             >
                               취소
                             </button>
@@ -1139,205 +1612,27 @@ export default function TeacherReview({
                           <button
                             type="button"
                             onClick={() => setConfirmDeleteRevisionId(selectedPortfolio.revision!.id)}
-                            className="inline-flex min-h-[40px] items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-1.5 text-xs text-slate-500 hover:border-red-200 hover:text-red-700 transition-colors cursor-pointer"
+                            className="inline-flex min-h-[38px] items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-1.5 text-xs text-slate-500 hover:border-red-200 hover:text-red-700 transition-colors cursor-pointer"
                           >
                             <Trash2 className="h-3.5 w-3.5" />
                             <span>3차시 기록 삭제</span>
                           </button>
-                        )}
-                      </div>
-                    )}
+                        ))}
+                    </div>
                   </div>
+                )}
 
-                  {!selectedPortfolio.revision ? (
-                    <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 px-4 py-8 text-center text-sm text-slate-500">
-                      아직 3차시 [수정하기] 제출 내역이 없습니다.
-                    </div>
-                  ) : (
-                    <div className="space-y-6 text-sm">
-                      {/* 전/후 화면 캡처 비교 */}
-                      <div>
-                        <h4 className="text-xs font-bold text-blue-700">
-                          1. 웹앱 화면 변화 비교 (첫 프롬프트 결과 → 수정 후 결과)
-                        </h4>
-                        <div className="mt-3 grid gap-4 sm:grid-cols-2">
-                          <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
-                            <div className="mb-2 flex items-center justify-between gap-2">
-                              <span className="text-xs font-semibold text-slate-700">
-                                첫 프롬프트 결과 완성 화면
-                              </span>
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  setZoomedImage({
-                                    label: `${formatFullAuthorLabel(selectedPortfolio)} · 첫 프롬프트 결과 화면`,
-                                    src: selectedPortfolio.revision!.beforeImage,
-                                  })
-                                }
-                                className="inline-flex items-center gap-1 rounded border border-slate-300 bg-white px-2 py-1 text-[11px] font-medium text-slate-700 hover:bg-slate-100 cursor-pointer"
-                              >
-                                <ZoomIn className="h-3 w-3" />
-                                <span>크게 보기</span>
-                              </button>
-                            </div>
-                            <button
-                              type="button"
-                              onClick={() =>
-                                setZoomedImage({
-                                  label: `${formatFullAuthorLabel(selectedPortfolio)} · 첫 프롬프트 결과 화면`,
-                                  src: selectedPortfolio.revision!.beforeImage,
-                                })
-                              }
-                              className="block w-full overflow-hidden rounded border border-slate-200 bg-white cursor-zoom-in"
-                            >
-                              <img
-                                src={selectedPortfolio.revision.beforeImage}
-                                alt="첫 프롬프트 결과 웹앱 화면"
-                                className="h-60 w-full object-contain bg-slate-100"
-                              />
-                            </button>
-                          </div>
-
-                          <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
-                            <div className="mb-2 flex items-center justify-between gap-2">
-                              <span className="text-xs font-semibold text-slate-700">
-                                수정 결과 바뀐 웹앱 화면
-                              </span>
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  setZoomedImage({
-                                    label: `${formatFullAuthorLabel(selectedPortfolio)} · 수정 결과 바뀐 화면`,
-                                    src: selectedPortfolio.revision!.afterImage,
-                                  })
-                                }
-                                className="inline-flex items-center gap-1 rounded border border-slate-300 bg-white px-2 py-1 text-[11px] font-medium text-slate-700 hover:bg-slate-100 cursor-pointer"
-                              >
-                                <ZoomIn className="h-3 w-3" />
-                                <span>크게 보기</span>
-                              </button>
-                            </div>
-                            <button
-                              type="button"
-                              onClick={() =>
-                                setZoomedImage({
-                                  label: `${formatFullAuthorLabel(selectedPortfolio)} · 수정 결과 바뀐 화면`,
-                                  src: selectedPortfolio.revision!.afterImage,
-                                })
-                              }
-                              className="block w-full overflow-hidden rounded border border-slate-200 bg-white cursor-zoom-in"
-                            >
-                              <img
-                                src={selectedPortfolio.revision.afterImage}
-                                alt="수정 결과 바뀐 웹앱 화면"
-                                className="h-60 w-full object-contain bg-slate-100"
-                              />
-                            </button>
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* 내가 테스트한 것은? */}
-                      <div className="border-t border-slate-200 pt-5">
-                        <h4 className="text-xs font-bold text-blue-700">2. 내가 테스트한 것은?</h4>
-                        <div className="mt-3 grid gap-4 sm:grid-cols-2">
-                          <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
-                            <div className="text-xs font-semibold text-slate-600">
-                              ① 웹앱을 사용해 보고 테스트한 것
-                            </div>
-                            <p className="mt-1.5 whitespace-pre-wrap text-sm leading-relaxed text-slate-900">
-                              {selectedPortfolio.revision.testedContent}
-                            </p>
-                          </div>
-                          <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
-                            <div className="text-xs font-semibold text-slate-600">
-                              ② 테스트 후 수정한 것
-                            </div>
-                            <p className="mt-1.5 whitespace-pre-wrap text-sm leading-relaxed text-slate-900">
-                              {selectedPortfolio.revision.fixedAfterTest}
-                            </p>
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* 수정 이유와 적용 결과 */}
-                      <div className="border-t border-slate-200 pt-5">
-                        <h4 className="text-xs font-bold text-blue-700">3. 수정한 이유와 적용 결과</h4>
-                        <p className="mt-2 whitespace-pre-wrap rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm leading-relaxed text-slate-900">
-                          {selectedPortfolio.revision.reasonAndResult}
-                        </p>
-                      </div>
-
-                      {/* 3차시 교사 확인 기록 */}
-                      <div className="border-t border-slate-200 pt-5">
-                        <h4 className="text-xs font-bold text-slate-900">교사 확인 기록 (3차시 수정하기)</h4>
-
-                        <div className="mt-3 grid grid-cols-3 gap-2.5">
-                          {(['미확인', '확인 완료', '보완 필요'] as RevisionReviewStatus[]).map((status) => {
-                            const active = revisionStatusDraft === status;
-                            return (
-                              <button
-                                key={status}
-                                type="button"
-                                onClick={() => setRevisionStatusDraft(status)}
-                                className={`min-h-[44px] rounded-lg border px-3 py-2 text-xs font-semibold transition-colors cursor-pointer ${
-                                  active
-                                    ? 'border-blue-700 bg-blue-700 text-white'
-                                    : 'border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100'
-                                }`}
-                              >
-                                {status}
-                              </button>
-                            );
-                          })}
-                        </div>
-
-                        <div className="mt-3">
-                          <label htmlFor="revisionTeacherNote" className="block text-xs font-medium text-slate-700">
-                            교사 피드백 메모
-                          </label>
-                          <textarea
-                            id="revisionTeacherNote"
-                            rows={2}
-                            maxLength={1000}
-                            value={revisionNoteDraft}
-                            onChange={(e) => setRevisionNoteDraft(e.target.value)}
-                            placeholder="테스트 내용 및 수정·보완 결과에 대한 교사 피드백을 기록하세요."
-                            className="mt-1.5 w-full rounded-lg border border-slate-300 bg-white px-3.5 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 focus:border-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-600/20"
-                          />
-                        </div>
-
-                        <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                          <div className="text-xs">
-                            {revisionNotice && (
-                              <span
-                                className={`inline-flex items-start gap-1.5 ${
-                                  revisionNotice.kind === 'ok' ? 'text-emerald-700' : 'text-red-700'
-                                }`}
-                              >
-                                {revisionNotice.kind === 'ok' && (
-                                  <Check className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-                                )}
-                                <span>{revisionNotice.text}</span>
-                              </span>
-                            )}
-                          </div>
-                          <button
-                            type="button"
-                            onClick={handleSaveRevisionReview}
-                            disabled={savingRevisionReview}
-                            className="min-h-[42px] w-full rounded-lg bg-slate-900 px-4 py-2 text-xs font-semibold text-white hover:bg-slate-800 disabled:opacity-50 transition-colors cursor-pointer sm:w-auto"
-                          >
-                            {savingRevisionReview ? '저장 중...' : '3차시 확인 저장'}
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  )}
-                </div>
+                {deleteNotice && (
+                  <div
+                    role="alert"
+                    className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-xs text-red-800 print:hidden"
+                  >
+                    {deleteNotice.text}
+                  </div>
+                )}
               </div>
             ) : (
-              /* 학번순 정렬 · 반별 필터 · 갤러리 형태 학생 목록 */
+              /* 학번순 정렬 · 반별 필터 · 학생 목록 */
               <>
                 <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-3">
                   <div className="rounded-xl border border-slate-200 bg-white p-4">
@@ -1365,7 +1660,7 @@ export default function TeacherReview({
                 {/* 반 선택 필터 + 검색 */}
                 <div className="mt-6 space-y-3 rounded-xl border border-slate-200 bg-white p-4">
                   <div className="flex flex-wrap items-center gap-2">
-                    <span className="text-xs font-bold text-slate-700 mr-1">반별 보기:</span>
+                    <span className="mr-1 text-xs font-bold text-slate-700">반별 보기:</span>
                     <button
                       type="button"
                       onClick={() => setSelectedClassKey('all')}
@@ -1408,7 +1703,7 @@ export default function TeacherReview({
                   </div>
                 </div>
 
-                {/* 갤러리 형태 카드 그리드 (학번순 정렬) */}
+                {/* 학생 카드 그리드 */}
                 {loading ? (
                   <div className="mt-6 rounded-xl border border-slate-200 bg-white p-10 text-center text-sm text-slate-500">
                     제출된 학생 기록을 불러오는 중입니다...
@@ -1417,59 +1712,73 @@ export default function TeacherReview({
                   <div className="mt-6 rounded-xl border border-slate-200 bg-white p-8 text-center sm:p-12">
                     <p className="text-sm font-medium text-slate-800">표시할 제출 학생이 없습니다.</p>
                     <p className="mt-1.5 text-xs leading-relaxed text-slate-500">
-                      학생이 문제탐색, 앱 기획서, 수정하기를 제출하면 반별·학번순 갤러리 카드로 표시됩니다.
+                      학생이 문제탐색, 앱 기획서, 수정하기를 제출하면 반별·학번순으로 표시됩니다.
                     </p>
                   </div>
                 ) : (
                   <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                    {filteredPortfolios.map((item) => (
-                      <button
-                        key={item.key}
-                        type="button"
-                        onClick={() => setSelectedStudentKey(item.key)}
-                        className="group flex flex-col justify-between rounded-xl border border-slate-300 bg-white p-5 text-left transition-colors hover:border-blue-600 hover:bg-blue-50/30 cursor-pointer"
-                      >
-                        <div>
-                          {/* 학년 · 반 · 이름 (+ 학번) */}
-                          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 pb-3">
-                            <div className="flex flex-wrap items-center gap-1.5 text-xs font-semibold text-slate-700">
-                              <span>{formatGradeText(item.grade)}</span>
-                              <span aria-hidden="true">·</span>
-                              <span>{formatClassText(item.classRoom)}</span>
-                              <span aria-hidden="true">·</span>
-                              <span className="text-sm font-extrabold text-slate-950">{item.studentName}</span>
+                    {filteredPortfolios.map((item) => {
+                      const ev = resolveEvaluationForPortfolio(item, evaluationMap);
+                      return (
+                        <button
+                          key={item.key}
+                          type="button"
+                          onClick={() => setSelectedStudentKey(item.key)}
+                          className="group flex flex-col justify-between rounded-xl border border-slate-300 bg-white p-5 text-left transition-colors hover:border-blue-600 hover:bg-blue-50/30 cursor-pointer"
+                        >
+                          <div>
+                            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 pb-3">
+                              <div className="flex flex-wrap items-center gap-1.5 text-xs font-semibold text-slate-700">
+                                <span>{formatGradeText(item.grade)}</span>
+                                <span aria-hidden="true">·</span>
+                                <span>{formatClassText(item.classRoom)}</span>
+                                <span aria-hidden="true">·</span>
+                                <span className="text-sm font-extrabold text-slate-950">{item.studentName}</span>
+                              </div>
+                              {item.studentIdBadge && (
+                                <span className="rounded bg-slate-900 px-2 py-0.5 font-mono-tabular text-[11px] font-bold text-white">
+                                  {item.studentIdBadge}
+                                </span>
+                              )}
                             </div>
-                            {item.studentIdBadge && (
-                              <span className="rounded bg-slate-900 px-2 py-0.5 font-mono-tabular text-[11px] font-bold text-white">
-                                {item.studentIdBadge}
+
+                            <h2 className="mt-3 text-base font-extrabold tracking-tight text-blue-800 group-hover:text-blue-700 line-clamp-2">
+                              {item.appTitle || '웹앱 제목 미입력'}
+                            </h2>
+
+                            <div className="mt-2.5">
+                              <div className="text-[11px] font-semibold text-slate-500">구현할 기능</div>
+                              <p className="mt-1 line-clamp-3 whitespace-pre-wrap text-xs leading-relaxed text-slate-700">
+                                {item.featuresToImplement || '아직 앱 기획서가 제출되지 않았습니다.'}
+                              </p>
+                            </div>
+                          </div>
+
+                          <div className="mt-4 space-y-2.5 border-t border-slate-100 pt-3">
+                            <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
+                              <span className={`rounded border px-1.5 py-0.5 font-semibold ${rubricBadgeClass(ev.discoveryRubric)}`}>
+                                탐색:{ev.discoveryRubric === '미확인' ? '-' : ev.discoveryRubric}
                               </span>
-                            )}
+                              <span className={`rounded border px-1.5 py-0.5 font-semibold ${rubricBadgeClass(ev.planRubric)}`}>
+                                기획:{ev.planRubric === '미확인' ? '-' : ev.planRubric}
+                              </span>
+                              <span className={`rounded border px-1.5 py-0.5 font-semibold ${rubricBadgeClass(ev.revisionRubric)}`}>
+                                수정:{ev.revisionRubric === '미확인' ? '-' : ev.revisionRubric}
+                              </span>
+                            </div>
+
+                            <div className="flex items-center justify-between text-[11px] text-slate-500">
+                              <span className="font-mono-tabular">
+                                {item.plan ? '기획서 ○' : '기획서 -'} · {item.revision ? '수정하기 ○' : '수정하기 -'}
+                              </span>
+                              <span className="font-semibold text-blue-700 group-hover:underline">
+                                보고서·평가 보기 →
+                              </span>
+                            </div>
                           </div>
-
-                          {/* 웹앱 제목 */}
-                          <h2 className="mt-3 text-base font-extrabold tracking-tight text-blue-800 group-hover:text-blue-700 line-clamp-2">
-                            {item.appTitle || '웹앱 제목 미입력'}
-                          </h2>
-
-                          {/* 구현할 기능 */}
-                          <div className="mt-2.5">
-                            <div className="text-[11px] font-semibold text-slate-500">구현할 기능</div>
-                            <p className="mt-1 line-clamp-3 whitespace-pre-wrap text-xs leading-relaxed text-slate-700">
-                              {item.featuresToImplement || '아직 앱 기획서가 제출되지 않았습니다.'}
-                            </p>
-                          </div>
-                        </div>
-
-                        <div className="mt-4 flex items-center justify-between border-t border-slate-100 pt-3 text-[11px] text-slate-500">
-                          <span className="font-mono-tabular">
-                            {item.plan ? '기획서 ○' : '기획서 -'} · {item.revision ? '수정하기 ○' : '수정하기 -'}
-                          </span>
-                          <span className="font-semibold text-blue-700 group-hover:underline">
-                            통합 내용 보기 →
-                          </span>
-                        </div>
-                      </button>
-                    ))}
+                        </button>
+                      );
+                    })}
                   </div>
                 )}
               </>
@@ -1677,7 +1986,7 @@ export default function TeacherReview({
           aria-modal="true"
           aria-label={zoomedImage.label}
           onClick={() => setZoomedImage(null)}
-          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 p-4"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 p-4 print:hidden"
         >
           <div
             onClick={(e) => e.stopPropagation()}

@@ -12,11 +12,13 @@ import type {
   AppRevisionSubmission,
   EditingReportSession,
   GalleryItem,
+  StageEvaluation,
   StudentLookupIdentity,
 } from './types/lesson';
 import {
   checkBackendHealth,
   checkTeacherSession,
+  fetchTeacherEvaluations,
   fetchTeacherGallery,
   fetchTeacherPlans,
   fetchTeacherRevisions,
@@ -154,6 +156,8 @@ export default function App() {
   const [plans, setPlans] = useState<AppPlanSubmission[]>([]);
   const [revisions, setRevisions] = useState<AppRevisionSubmission[]>([]);
   const [galleryItems, setGalleryItems] = useState<GalleryItem[]>([]);
+  const [stageEvaluations, setStageEvaluations] = useState<StageEvaluation[]>([]);
+  const [teacherPrintMode, setTeacherPrintMode] = useState(false);
   const [lastSavedPlan, setLastSavedPlan] = useState<AppPlanSubmission | null>(null);
   const [lastSavedRevision, setLastSavedRevision] = useState<AppRevisionSubmission | null>(null);
   const [formInput, setFormInput] = useState<AppPlanInput>(loadSessionForm);
@@ -166,24 +170,37 @@ export default function App() {
   const loadTeacherData = useCallback(async () => {
     setLoadingPlans(true);
     setTeacherError(null);
-    const [plansRes, revisionsRes, galleryRes] = await Promise.all([
+    const [plansRes, revisionsRes, galleryRes, evaluationsRes] = await Promise.all([
       fetchTeacherPlans(),
       fetchTeacherRevisions(),
       fetchTeacherGallery(),
+      fetchTeacherEvaluations(),
     ]);
-    if (plansRes.unauthorized || revisionsRes.unauthorized || galleryRes.unauthorized) {
+    if (
+      plansRes.unauthorized ||
+      revisionsRes.unauthorized ||
+      galleryRes.unauthorized ||
+      evaluationsRes.unauthorized
+    ) {
       setTeacherAuthenticated(false);
       setPlans([]);
       setRevisions([]);
       setGalleryItems([]);
+      setStageEvaluations([]);
+      setTeacherPrintMode(false);
       setTeacherError(
-        plansRes.error || revisionsRes.error || galleryRes.error || '교사 로그인이 필요합니다.',
+        plansRes.error ||
+          revisionsRes.error ||
+          galleryRes.error ||
+          evaluationsRes.error ||
+          '교사 로그인이 필요합니다.',
       );
     } else if (!plansRes.connected || !revisionsRes.connected || !galleryRes.connected) {
       setBackendMode('unavailable');
       setPlans([]);
       setRevisions([]);
       setGalleryItems([]);
+      setStageEvaluations([]);
       setTeacherError(
         plansRes.error || revisionsRes.error || galleryRes.error || '저장소와 연결되지 않았습니다.',
       );
@@ -191,12 +208,14 @@ export default function App() {
       setPlans(plansRes.plans);
       setRevisions(revisionsRes.revisions);
       setGalleryItems(galleryRes.items);
+      setStageEvaluations(evaluationsRes.evaluations);
       setTeacherError(plansRes.error || revisionsRes.error || galleryRes.error || null);
     } else {
       setBackendMode('ready');
       setPlans(plansRes.plans);
       setRevisions(revisionsRes.revisions);
       setGalleryItems(galleryRes.items);
+      setStageEvaluations(evaluationsRes.evaluations);
     }
     setLoadingPlans(false);
   }, []);
@@ -434,19 +453,34 @@ export default function App() {
     setGalleryItems((prev) => prev.filter((item) => item.id !== id));
   }
 
+  function handleUpdateEvaluation(updated: StageEvaluation) {
+    setStageEvaluations((prev) => {
+      const exists = prev.some((item) => item.studentKey === updated.studentKey);
+      return exists
+        ? prev.map((item) => (item.studentKey === updated.studentKey ? updated : item))
+        : [updated, ...prev];
+    });
+  }
+
   function navigateToPage(page: PageKey) {
     if (editingReport?.active && !EDIT_ALLOWED_PAGES.has(page)) {
       setEditNavBlockedOpen(true);
       return;
     }
+    if (page !== 'teacher' && teacherPrintMode) {
+      setTeacherPrintMode(false);
+    }
     setActivePage(page);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }
 
+  const isPrintScreenActive = activePage === 'teacher' && teacherPrintMode;
+
   return (
-    <div className="min-h-screen flex flex-col bg-[#eef2f6] text-slate-950">
+    <div className="min-h-screen flex flex-col bg-[#eef2f6] text-slate-950 print:bg-white">
       {/* Top Navigation Bar */}
-      <header className="sticky top-0 z-30 border-b border-slate-700 bg-slate-900 text-white">
+      {!isPrintScreenActive && (
+        <header className="sticky top-0 z-30 border-b border-slate-700 bg-slate-900 text-white print:hidden">
         <div className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-4 py-3.5 sm:px-6">
           <a
             href="#top"
@@ -483,34 +517,37 @@ export default function App() {
             })}
           </nav>
         </div>
-      </header>
+        </header>
+      )}
 
       {/* Non-sticky mobile navigation strip */}
-      <nav aria-label="모바일 메뉴" className="border-b border-slate-700 bg-slate-800 px-4 py-2.5 md:hidden">
-        <div className="flex items-center gap-2 overflow-x-auto">
-          {MENU_ITEMS.map((item) => {
-            const active = activePage === item.key;
-            const lockedInEdit = Boolean(editingReport?.active && !EDIT_ALLOWED_PAGES.has(item.key));
-            return (
-              <button
-                key={item.key}
-                type="button"
-                onClick={() => navigateToPage(item.key)}
-                className={`inline-flex min-h-[46px] items-center gap-1 rounded-lg px-4 py-2.5 text-sm font-bold tracking-tight transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
-                  active
-                    ? 'bg-blue-500 text-white'
-                    : lockedInEdit
-                      ? 'bg-slate-700/60 text-slate-400 hover:bg-slate-700'
-                      : 'bg-slate-700 text-slate-100 hover:bg-slate-600 hover:text-white'
-                }`}
-              >
-                {lockedInEdit && <Lock className="h-3.5 w-3.5 shrink-0" />}
-                <span>{item.label}</span>
-              </button>
-            );
-          })}
-        </div>
-      </nav>
+      {!isPrintScreenActive && (
+        <nav aria-label="모바일 메뉴" className="border-b border-slate-700 bg-slate-800 px-4 py-2.5 md:hidden print:hidden">
+          <div className="flex items-center gap-2 overflow-x-auto">
+            {MENU_ITEMS.map((item) => {
+              const active = activePage === item.key;
+              const lockedInEdit = Boolean(editingReport?.active && !EDIT_ALLOWED_PAGES.has(item.key));
+              return (
+                <button
+                  key={item.key}
+                  type="button"
+                  onClick={() => navigateToPage(item.key)}
+                  className={`inline-flex min-h-[46px] items-center gap-1 rounded-lg px-4 py-2.5 text-sm font-bold tracking-tight transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
+                    active
+                      ? 'bg-blue-500 text-white'
+                      : lockedInEdit
+                        ? 'bg-slate-700/60 text-slate-400 hover:bg-slate-700'
+                        : 'bg-slate-700 text-slate-100 hover:bg-slate-600 hover:text-white'
+                  }`}
+                >
+                  {lockedInEdit && <Lock className="h-3.5 w-3.5 shrink-0" />}
+                  <span>{item.label}</span>
+                </button>
+              );
+            })}
+          </div>
+        </nav>
+      )}
 
       {editingReport?.active && (
         <div className="border-b border-blue-200 bg-blue-50 px-4 py-3 text-xs text-blue-950 sm:px-6">
@@ -601,6 +638,8 @@ export default function App() {
             plans={plans}
             revisions={revisions}
             galleryItems={galleryItems}
+            evaluations={stageEvaluations}
+            printMode={teacherPrintMode}
             loading={loadingPlans}
             authError={teacherError}
             onAuthenticated={() => {
@@ -613,15 +652,19 @@ export default function App() {
               setPlans([]);
               setRevisions([]);
               setGalleryItems([]);
+              setStageEvaluations([]);
+              setTeacherPrintMode(false);
               setTeacherError(null);
             }}
             onRefresh={loadTeacherData}
+            onPrintModeChange={setTeacherPrintMode}
             onUpdatePlan={handleUpdatePlan}
             onRemovePlan={handleRemovePlan}
             onUpdateRevision={handleUpdateRevision}
             onRemoveRevision={handleRemoveRevision}
             onUpdateGalleryItem={handleUpdateGalleryItem}
             onRemoveGalleryItem={handleRemoveGalleryItem}
+            onUpdateEvaluation={handleUpdateEvaluation}
           />
         )}
       </main>
@@ -673,18 +716,20 @@ export default function App() {
         </div>
       )}
 
-      <footer className="border-t border-slate-300 bg-white">
-        <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-4 px-4 py-5 text-xs text-slate-500 sm:px-6">
-          <span>코드를 읽고 다시 쓰는 바이브 코딩 프로젝트 · 고등학교 1학년 정보</span>
-          <span>
-            {backendMode === 'ready'
-              ? '데이터 저장소 연결됨 (Cloudflare D1)'
-              : backendMode === 'db_uninitialized'
-                ? 'D1 테이블 준비 필요 (setup.sql)'
-                : '저장 준비 중 · Cloudflare Workers + D1 연결 예정'}
-          </span>
-        </div>
-      </footer>
+      {!isPrintScreenActive && (
+        <footer className="border-t border-slate-300 bg-white print:hidden">
+          <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-4 px-4 py-5 text-xs text-slate-500 sm:px-6">
+            <span>코드를 읽고 다시 쓰는 바이브 코딩 프로젝트 · 고등학교 1학년 정보</span>
+            <span>
+              {backendMode === 'ready'
+                ? '데이터 저장소 연결됨 (Cloudflare D1)'
+                : backendMode === 'db_uninitialized'
+                  ? 'D1 테이블 준비 필요 (setup.sql)'
+                  : '저장 준비 중 · Cloudflare Workers + D1 연결 예정'}
+            </span>
+          </div>
+        </footer>
+      )}
     </div>
   );
 }

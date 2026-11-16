@@ -455,7 +455,7 @@ export default function RevisionPage({
             </span>
           </div>
           <h1 className="mt-1.5 text-2xl font-extrabold tracking-tight text-slate-950 sm:text-3xl">
-            웹앱 테스트 점검 및 수정 보완 기록
+            테스트 및 수정 보완
           </h1>
           <p className="mt-1.5 text-sm text-slate-600">
             완성된 웹앱을 직접 사용해 보고 테스트한 내용과 수정한 사항, 바뀐 화면 캡처, 수정 이유 및 적용 결과를 정리하세요.

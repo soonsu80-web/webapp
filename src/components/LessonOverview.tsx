@@ -88,25 +88,57 @@ export default function LessonOverview({
               </p>
             </div>
 
-            <div className="mt-6 flex flex-wrap items-center gap-3">
-              <button
-                type="button"
-                onClick={onStartDiscovery}
-                className="inline-flex min-h-[48px] w-full items-center justify-center gap-2 rounded-lg bg-blue-600 px-6 py-3 text-sm font-bold text-white hover:bg-blue-500 transition-colors whitespace-nowrap shrink-0 cursor-pointer sm:w-auto"
-              >
-                <span>문제탐색 시작하기</span>
-                <ArrowRight className="h-4 w-4" />
-              </button>
+            <div className="mt-6 space-y-3">
+              <div>
+                <button
+                  type="button"
+                  onClick={() => setShowStandards((prev) => !prev)}
+                  className="inline-flex min-h-[42px] items-center gap-1.5 rounded-lg border border-slate-700 bg-slate-900 px-3.5 py-2 text-xs font-bold text-slate-100 hover:border-slate-500 hover:bg-slate-800 transition-colors cursor-pointer"
+                >
+                  <span>관련 성취기준</span>
+                  {showStandards ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                </button>
 
-              <button
-                type="button"
-                onClick={openLookupModal}
-                className="inline-flex min-h-[48px] w-full items-center justify-center gap-2 rounded-lg border border-slate-600 bg-slate-800/90 px-5 py-3 text-sm font-bold text-white hover:border-slate-400 hover:bg-slate-700 transition-colors whitespace-nowrap shrink-0 cursor-pointer sm:w-auto"
-              >
-                <FileEdit className="h-4 w-4 text-blue-300" />
-                <span>내 보고서 수정하기</span>
-                <ArrowRight className="h-4 w-4" />
-              </button>
+                {showStandards && (
+                  <div className="mt-3 space-y-3 rounded-xl border border-slate-700 bg-slate-900 p-4 text-xs leading-relaxed text-slate-200">
+                    <div>
+                      <div className="font-bold text-white">1차시 연계 프로젝트 목표</div>
+                      <p className="mt-1">
+                        ① 일상생활 속 문제를 해결하기 위해 웹앱의 화면 구성과 프로그래밍 원리를 분석하여 설명할 수 있다.
+                      </p>
+                    </div>
+                    <div className="border-t border-slate-700 pt-3">
+                      <div className="font-bold text-white">관련 성취기준</div>
+                      <ul className="mt-1 space-y-1">
+                        <li>[12정03-07] 다양한 제어 구조를 복합적으로 활용한 프로그램을 작성한다.</li>
+                        <li>[12정03-09] 실생활 및 다양한 학문 분야의 문제 해결을 위한 프로그램을 협력적으로 설계·구현한다.</li>
+                        <li>[12정03-10] 문제 해결을 위한 프로그램의 성능을 평가하고 공유한다.</li>
+                      </ul>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <div className="flex flex-wrap items-center gap-3">
+                <button
+                  type="button"
+                  onClick={onStartDiscovery}
+                  className="inline-flex min-h-[48px] w-full items-center justify-center gap-2 rounded-lg bg-blue-600 px-6 py-3 text-sm font-bold text-white hover:bg-blue-500 transition-colors whitespace-nowrap shrink-0 cursor-pointer sm:w-auto"
+                >
+                  <span>문제탐색 시작하기</span>
+                  <ArrowRight className="h-4 w-4" />
+                </button>
+
+                <button
+                  type="button"
+                  onClick={openLookupModal}
+                  className="inline-flex min-h-[48px] w-full items-center justify-center gap-2 rounded-lg border border-slate-600 bg-slate-800/90 px-5 py-3 text-sm font-bold text-white hover:border-slate-400 hover:bg-slate-700 transition-colors whitespace-nowrap shrink-0 cursor-pointer sm:w-auto"
+                >
+                  <FileEdit className="h-4 w-4 text-blue-300" />
+                  <span>내 보고서 수정하기</span>
+                  <ArrowRight className="h-4 w-4" />
+                </button>
+              </div>
             </div>
           </div>
 
@@ -326,36 +358,6 @@ export default function LessonOverview({
               </div>
             </li>
           </ol>
-
-          <div className="mt-6 border-t border-slate-200 pt-4">
-            <button
-              type="button"
-              onClick={() => setShowStandards((prev) => !prev)}
-              className="inline-flex min-h-[44px] items-center gap-1.5 rounded-lg border border-slate-300 bg-slate-50 px-3.5 py-2 text-xs font-bold text-slate-800 hover:bg-slate-100 transition-colors cursor-pointer"
-            >
-              <span>관련 성취기준</span>
-              {showStandards ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
-            </button>
-
-            {showStandards && (
-              <div className="mt-3 space-y-3 rounded-xl border border-slate-200 bg-slate-50 p-4 text-xs leading-relaxed text-slate-700">
-                <div>
-                  <div className="font-bold text-slate-950">1차시 연계 프로젝트 목표</div>
-                  <p className="mt-1">
-                    ① 일상생활 속 문제를 해결하기 위해 웹앱의 화면 구성과 프로그래밍 원리를 분석하여 설명할 수 있다.
-                  </p>
-                </div>
-                <div className="border-t border-slate-200 pt-3">
-                  <div className="font-bold text-slate-950">관련 성취기준</div>
-                  <ul className="mt-1 space-y-1">
-                    <li>[12정03-07] 다양한 제어 구조를 복합적으로 활용한 프로그램을 작성한다.</li>
-                    <li>[12정03-09] 실생활 및 다양한 학문 분야의 문제 해결을 위한 프로그램을 협력적으로 설계·구현한다.</li>
-                    <li>[12정03-10] 문제 해결을 위한 프로그램의 성능을 평가하고 공유한다.</li>
-                  </ul>
-                </div>
-              </div>
-            )}
-          </div>
         </div>
 
         <aside className="rounded-2xl border border-slate-300 bg-white p-6 sm:p-7 lg:col-span-5 flex flex-col justify-between">

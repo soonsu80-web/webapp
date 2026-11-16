@@ -3,11 +3,13 @@ import type {
   AppPlanSubmission,
   AppRevisionInput,
   AppRevisionSubmission,
+  EvaluationStage,
   GalleryInput,
   GalleryItem,
   GalleryStatus,
   RevisionReviewStatus,
   RubricLevel,
+  StageEvaluation,
 } from '../types/lesson';
 
 export type BackendMode = 'checking' | 'ready' | 'db_uninitialized' | 'unavailable';
@@ -768,3 +770,88 @@ export async function updateFullReportInApi(params: {
     };
   }
 }
+
+export async function fetchTeacherEvaluations(): Promise<{
+  connected: boolean;
+  unauthorized?: boolean;
+  evaluations: StageEvaluation[];
+  error?: string;
+}> {
+  try {
+    const res = await fetch('/api/teacher/evaluations', {
+      method: 'GET',
+      headers: { Accept: 'application/json' },
+      credentials: 'same-origin',
+    });
+    if (!isJsonResponse(res)) {
+      return { connected: false, evaluations: [] };
+    }
+    const data = await res.json();
+    if (res.status === 401) {
+      return {
+        connected: true,
+        unauthorized: true,
+        evaluations: [],
+        error: typeof data?.error === 'string' ? data.error : '교사 로그인이 필요합니다.',
+      };
+    }
+    if (!res.ok) {
+      return {
+        connected: true,
+        evaluations: [],
+        error: typeof data?.error === 'string' ? data.error : '단계별 평가 목록을 불러오지 못했습니다.',
+      };
+    }
+    return {
+      connected: true,
+      evaluations: Array.isArray(data?.evaluations) ? data.evaluations : [],
+    };
+  } catch {
+    return { connected: false, evaluations: [], error: '서버와 연결하지 못했습니다.' };
+  }
+}
+
+export async function saveStageEvaluationToApi(params: {
+  studentKey: string;
+  stage: EvaluationStage;
+  rubric: RubricLevel;
+  note: string;
+  planId?: string | null;
+  revisionId?: string | null;
+}): Promise<{
+  connected: boolean;
+  ok: boolean;
+  unauthorized?: boolean;
+  evaluation?: StageEvaluation;
+  error?: string;
+}> {
+  try {
+    const res = await fetch('/api/teacher/evaluations', {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+      },
+      credentials: 'same-origin',
+      body: JSON.stringify(params),
+    });
+    if (!isJsonResponse(res)) {
+      return { connected: false, ok: false, error: '인증/저장 서버(/api)에 연결되지 않았습니다.' };
+    }
+    const data = await res.json();
+    if (res.status === 401) {
+      return { connected: true, ok: false, unauthorized: true, error: '교사 세션이 만료되었습니다.' };
+    }
+    if (!res.ok || !data?.evaluation) {
+      return {
+        connected: true,
+        ok: false,
+        error: typeof data?.error === 'string' ? data.error : '단계별 평가 저장에 실패했습니다.',
+      };
+    }
+    return { connected: true, ok: true, evaluation: data.evaluation };
+  } catch {
+    return { connected: false, ok: false, error: '서버와 통신하지 못했습니다.' };
+  }
+}
+

@@ -113,3 +113,17 @@ export interface EditingReportSession {
   revisionId: string | null;
   lookup: StudentLookupIdentity;
 }
+
+export type EvaluationStage = 'discovery' | 'plan' | 'revision';
+
+export interface StageEvaluation {
+  studentKey: string;
+  discoveryRubric: RubricLevel;
+  discoveryNote: string;
+  planRubric: RubricLevel;
+  planNote: string;
+  revisionRubric: RubricLevel;
+  revisionNote: string;
+  updatedAt: string;
+}
+

@@ -117,7 +117,7 @@ export default function GalleryPage({ backendMode }: GalleryPageProps) {
             <span>교사 인증 후 전체 공개</span>
           </div>
           <h1 className="mt-1.5 text-2xl font-extrabold tracking-tight text-slate-950 sm:text-3xl">
-            바이브 코딩 프로젝트 갤러리
+            작품 감상 갤러리
           </h1>
           <p className="mt-1.5 text-sm text-slate-600">
             내가 바이브 코딩으로 만든 웹페이지 주소를 등록하면, 교사 확인 및 인증을 거쳐 우리 반 갤러리에 게시됩니다.

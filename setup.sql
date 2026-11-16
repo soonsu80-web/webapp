@@ -12,5 +12,5 @@ CREATE TABLE IF NOT EXISTS app_plan_meta (plan_id TEXT PRIMARY KEY, student_numb
 CREATE INDEX IF NOT EXISTS idx_app_plan_meta_updated_at ON app_plan_meta(updated_at DESC);
 CREATE TABLE IF NOT EXISTS app_revision_details (revision_id TEXT PRIMARY KEY, student_number TEXT NOT NULL DEFAULT '', tested_content TEXT NOT NULL DEFAULT '', fixed_after_test TEXT NOT NULL DEFAULT '', updated_at TEXT NOT NULL);
 CREATE INDEX IF NOT EXISTS idx_app_revision_details_updated_at ON app_revision_details(updated_at DESC);
-
-
+CREATE TABLE IF NOT EXISTS stage_evaluations (student_key TEXT PRIMARY KEY, discovery_rubric TEXT NOT NULL DEFAULT '미확인', discovery_note TEXT NOT NULL DEFAULT '', plan_rubric TEXT NOT NULL DEFAULT '미확인', plan_note TEXT NOT NULL DEFAULT '', revision_rubric TEXT NOT NULL DEFAULT '미확인', revision_note TEXT NOT NULL DEFAULT '', updated_at TEXT NOT NULL);
+CREATE INDEX IF NOT EXISTS idx_stage_evaluations_updated_at ON stage_evaluations(updated_at DESC);

@@ -22,3 +22,19 @@
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
 }
+
+@media print {
+  @page {
+    size: A4;
+    margin: 12mm;
+  }
+
+  html,
+  body {
+    background-color: #ffffff !important;
+    color: #090d16 !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+}
+
