@@ -783,7 +783,13 @@ export default function RevisionPage({
               className="inline-flex min-h-[48px] w-full items-center justify-center gap-2 rounded-lg bg-blue-700 px-5 py-3 text-sm font-bold text-white hover:bg-blue-800 disabled:opacity-60 transition-colors whitespace-nowrap shrink-0 cursor-pointer sm:w-auto sm:min-h-[46px]"
             >
               <Send className="h-4 w-4" />
-              <span>{submitting ? '저장 요청 중...' : '보고서 제출하기'}</span>
+              <span>
+                {submitting
+                  ? '저장 요청 중...'
+                  : Boolean(lastSavedRevision) && !editingReport?.active
+                    ? '다시 제출하기'
+                    : '보고서 제출하기'}
+              </span>
             </button>
           </div>
         </div>

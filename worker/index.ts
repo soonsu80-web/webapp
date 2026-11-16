@@ -1551,6 +1551,56 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
     }
   }
 
+  // Delete an entire student's report (all plans, revisions, and stage evaluation)
+  if (path === '/api/teacher/student-report/delete' && method === 'POST') {
+    const sessionHash = await getActiveTeacherSessionHash(request, env);
+    if (!sessionHash) {
+      return jsonResponse({ error: '교사 로그인이 필요합니다.' }, 401);
+    }
+
+    let body: unknown;
+    try {
+      body = await request.json();
+    } catch {
+      return jsonResponse({ error: '올바른 JSON 요청 본문이 아닙니다.' }, 400);
+    }
+
+    const raw = (body || {}) as Record<string, unknown>;
+    const studentKey = sanitizeText(raw.studentKey, 120);
+    const planIds = Array.isArray(raw.planIds)
+      ? raw.planIds.filter((id): id is string => typeof id === 'string' && id.trim().length > 0).slice(0, 50)
+      : [];
+    const revisionIds = Array.isArray(raw.revisionIds)
+      ? raw.revisionIds.filter((id): id is string => typeof id === 'string' && id.trim().length > 0).slice(0, 50)
+      : [];
+
+    if (!studentKey && planIds.length === 0 && revisionIds.length === 0) {
+      return jsonResponse({ error: '삭제할 학생 보고서 정보가 없습니다.' }, 400);
+    }
+
+    try {
+      for (const planId of planIds) {
+        await env.DB.prepare('DELETE FROM app_plan_meta WHERE plan_id = ?').bind(planId).run();
+        await env.DB.prepare('DELETE FROM app_plan_prompts WHERE plan_id = ?').bind(planId).run();
+        await env.DB.prepare('DELETE FROM app_plans WHERE id = ?').bind(planId).run();
+      }
+
+      for (const revisionId of revisionIds) {
+        await env.DB.prepare('DELETE FROM app_revision_details WHERE revision_id = ?').bind(revisionId).run();
+        await env.DB.prepare('DELETE FROM app_revisions WHERE id = ?').bind(revisionId).run();
+      }
+
+      if (studentKey) {
+        await ensureStageEvaluationsTable(env.DB);
+        await env.DB.prepare('DELETE FROM stage_evaluations WHERE student_key = ?').bind(studentKey).run();
+      }
+
+      return jsonResponse({ ok: true });
+    } catch {
+      return jsonResponse({ error: '학생 보고서 전체 삭제 중 오류가 발생했습니다.' }, 500);
+    }
+  }
+
   return jsonResponse({ error: '지원하지 않는 API 경로입니다.' }, 404);
 }
 

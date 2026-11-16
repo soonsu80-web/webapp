@@ -26,8 +26,7 @@ import type {
   StageEvaluation,
 } from '../types/lesson';
 import {
-  deletePlanFromApi,
-  deleteRevisionFromApi,
+  deleteStudentReportFromApi,
   deleteTeacherGalleryItem,
   loginTeacher,
   logoutTeacher,
@@ -147,18 +146,20 @@ interface UnifiedStudentPortfolio {
   latestUpdatedAt: string;
 }
 
+function getStudentMatchKey(grade: string, classRoom: string, studentName: string): string {
+  const g = normalizeUnit(grade, '학년').toLowerCase();
+  const c = normalizeUnit(classRoom, '반').toLowerCase();
+  const name = studentName.trim().toLowerCase();
+  return `${g}__${c}__${name}`;
+}
+
 function buildUnifiedPortfolios(
   plans: AppPlanSubmission[],
   revisions: AppRevisionSubmission[],
 ): UnifiedStudentPortfolio[] {
   const map = new Map<string, UnifiedStudentPortfolio>();
 
-  function getMatchKey(grade: string, classRoom: string, studentName: string): string {
-    const g = normalizeUnit(grade, '학년').toLowerCase();
-    const c = normalizeUnit(classRoom, '반').toLowerCase();
-    const name = studentName.trim().toLowerCase();
-    return `${g}__${c}__${name}`;
-  }
+  const getMatchKey = getStudentMatchKey;
 
   for (const plan of plans) {
     const key = getMatchKey(plan.grade, plan.classRoom, plan.studentName);
@@ -821,9 +822,8 @@ interface TeacherReviewProps {
   onRefresh: () => void;
   onPrintModeChange: (printing: boolean) => void;
   onUpdatePlan: (updated: AppPlanSubmission) => void;
-  onRemovePlan: (id: string) => void;
   onUpdateRevision: (updated: AppRevisionSubmission) => void;
-  onRemoveRevision: (id: string) => void;
+  onRemoveStudentReport: (params: { studentKey: string; planIds: string[]; revisionIds: string[] }) => void;
   onUpdateGalleryItem: (updated: GalleryItem) => void;
   onRemoveGalleryItem: (id: string) => void;
   onUpdateEvaluation: (updated: StageEvaluation) => void;
@@ -852,9 +852,8 @@ export default function TeacherReview({
   onRefresh,
   onPrintModeChange,
   onUpdatePlan,
-  onRemovePlan,
   onUpdateRevision,
-  onRemoveRevision,
+  onRemoveStudentReport,
   onUpdateGalleryItem,
   onRemoveGalleryItem,
   onUpdateEvaluation,
@@ -878,8 +877,8 @@ export default function TeacherReview({
     Partial<Record<EvaluationStage, { kind: 'ok' | 'err'; text: string } | null>>
   >({});
 
-  const [confirmDeletePlanId, setConfirmDeletePlanId] = useState<string | null>(null);
-  const [confirmDeleteRevisionId, setConfirmDeleteRevisionId] = useState<string | null>(null);
+  const [confirmDeleteReport, setConfirmDeleteReport] = useState(false);
+  const [deletingReport, setDeletingReport] = useState(false);
   const [deleteNotice, setDeleteNotice] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null);
   const [zoomedImage, setZoomedImage] = useState<{ label: string; src: string } | null>(null);
 
@@ -960,8 +959,8 @@ export default function TeacherReview({
     if (!selectedPortfolio) {
       setStageNotesDraft({ discovery: '', plan: '', revision: '' });
       setStageNotices({});
-      setConfirmDeletePlanId(null);
-      setConfirmDeleteRevisionId(null);
+      setConfirmDeleteReport(false);
+      setDeletingReport(false);
       setDeleteNotice(null);
       if (printMode) onPrintModeChange(false);
       return;
@@ -973,8 +972,8 @@ export default function TeacherReview({
       revision: resolved.revisionNote,
     });
     setStageNotices({});
-    setConfirmDeletePlanId(null);
-    setConfirmDeleteRevisionId(null);
+    setConfirmDeleteReport(false);
+    setDeletingReport(false);
     setDeleteNotice(null);
   }, [selectedPortfolio?.key]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -1075,39 +1074,41 @@ export default function TeacherReview({
     void persistStageEvaluation(stage, rubric, stageNotesDraft[stage]);
   }
 
-  async function handleDeletePlan(id: string) {
-    const res = await deletePlanFromApi(id);
-    if (res.unauthorized) {
-      onPrintModeChange(false);
-      onLoggedOut();
-      return;
-    }
-    if (res.ok) {
-      onRemovePlan(id);
-      setConfirmDeletePlanId(null);
-      if (!selectedPortfolio?.revision) {
-        setSelectedStudentKey(null);
-      }
-    } else {
-      setDeleteNotice({ kind: 'err', text: res.error || '1·2차시 응답 삭제에 실패했습니다.' });
-    }
-  }
+  async function handleDeleteStudentReport(portfolio: UnifiedStudentPortfolio) {
+    const planIds = plans
+      .filter((p) => getStudentMatchKey(p.grade, p.classRoom, p.studentName) === portfolio.key)
+      .map((p) => p.id);
+    const revisionIds = revisions
+      .filter((r) => getStudentMatchKey(r.grade, r.classRoom, r.studentName) === portfolio.key)
+      .map((r) => r.id);
 
-  async function handleDeleteRevision(id: string) {
-    const res = await deleteRevisionFromApi(id);
-    if (res.unauthorized) {
-      onPrintModeChange(false);
-      onLoggedOut();
-      return;
-    }
-    if (res.ok) {
-      onRemoveRevision(id);
-      setConfirmDeleteRevisionId(null);
-      if (!selectedPortfolio?.plan) {
-        setSelectedStudentKey(null);
+    setDeletingReport(true);
+    setDeleteNotice(null);
+    try {
+      const res = await deleteStudentReportFromApi({
+        studentKey: portfolio.key,
+        planIds,
+        revisionIds,
+      });
+      if (res.unauthorized) {
+        onPrintModeChange(false);
+        onLoggedOut();
+        return;
       }
-    } else {
-      setDeleteNotice({ kind: 'err', text: res.error || '3차시 수정하기 기록 삭제에 실패했습니다.' });
+      if (res.ok) {
+        onRemoveStudentReport({
+          studentKey: portfolio.key,
+          planIds,
+          revisionIds,
+        });
+        setConfirmDeleteReport(false);
+        onPrintModeChange(false);
+        setSelectedStudentKey(null);
+      } else {
+        setDeleteNotice({ kind: 'err', text: res.error || '학생 보고서 삭제에 실패했습니다.' });
+      }
+    } finally {
+      setDeletingReport(false);
     }
   }
 
@@ -1555,72 +1556,41 @@ export default function TeacherReview({
                   onSaveStageNote={handleSaveStageNote}
                 />
 
-                {/* 하단 기록 관리 (삭제 기능 - 출력 시 숨김) */}
-                {(selectedPortfolio.plan || selectedPortfolio.revision) && (
-                  <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3.5 sm:px-6 print:hidden">
-                    <span className="text-xs font-medium text-slate-500">제출 기록 관리</span>
-
+                {/* 하단 보고서 삭제 (해당 학생 보고서 전체 삭제 - 출력 시 숨김) */}
+                <div className="flex flex-wrap items-center justify-end gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3.5 sm:px-6 print:hidden">
+                  {confirmDeleteReport ? (
                     <div className="flex flex-wrap items-center gap-2">
-                      {selectedPortfolio.plan &&
-                        (confirmDeletePlanId === selectedPortfolio.plan.id ? (
-                          <div className="flex items-center gap-1.5">
-                            <button
-                              type="button"
-                              onClick={() => handleDeletePlan(selectedPortfolio.plan!.id)}
-                              className="min-h-[38px] rounded-lg bg-red-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-red-700 cursor-pointer"
-                            >
-                              1·2차시 삭제 확인
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => setConfirmDeletePlanId(null)}
-                              className="min-h-[38px] rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 cursor-pointer"
-                            >
-                              취소
-                            </button>
-                          </div>
-                        ) : (
-                          <button
-                            type="button"
-                            onClick={() => setConfirmDeletePlanId(selectedPortfolio.plan!.id)}
-                            className="inline-flex min-h-[38px] items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-1.5 text-xs text-slate-500 hover:border-red-200 hover:text-red-700 transition-colors cursor-pointer"
-                          >
-                            <Trash2 className="h-3.5 w-3.5" />
-                            <span>1·2차시 기록 삭제</span>
-                          </button>
-                        ))}
-
-                      {selectedPortfolio.revision &&
-                        (confirmDeleteRevisionId === selectedPortfolio.revision.id ? (
-                          <div className="flex items-center gap-1.5">
-                            <button
-                              type="button"
-                              onClick={() => handleDeleteRevision(selectedPortfolio.revision!.id)}
-                              className="min-h-[38px] rounded-lg bg-red-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-red-700 cursor-pointer"
-                            >
-                              3차시 삭제 확인
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => setConfirmDeleteRevisionId(null)}
-                              className="min-h-[38px] rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 cursor-pointer"
-                            >
-                              취소
-                            </button>
-                          </div>
-                        ) : (
-                          <button
-                            type="button"
-                            onClick={() => setConfirmDeleteRevisionId(selectedPortfolio.revision!.id)}
-                            className="inline-flex min-h-[38px] items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-1.5 text-xs text-slate-500 hover:border-red-200 hover:text-red-700 transition-colors cursor-pointer"
-                          >
-                            <Trash2 className="h-3.5 w-3.5" />
-                            <span>3차시 기록 삭제</span>
-                          </button>
-                        ))}
+                      <span className="text-xs font-semibold text-red-700">
+                        {formatFullAuthorLabel(selectedPortfolio)} 학생의 보고서 전체를 삭제할까요?
+                      </span>
+                      <button
+                        type="button"
+                        disabled={deletingReport}
+                        onClick={() => handleDeleteStudentReport(selectedPortfolio)}
+                        className="min-h-[40px] rounded-lg bg-red-600 px-4 py-2 text-xs font-bold text-white hover:bg-red-700 disabled:opacity-50 cursor-pointer"
+                      >
+                        {deletingReport ? '삭제 중...' : '전체 삭제 확인'}
+                      </button>
+                      <button
+                        type="button"
+                        disabled={deletingReport}
+                        onClick={() => setConfirmDeleteReport(false)}
+                        className="min-h-[40px] rounded-lg border border-slate-300 bg-white px-3.5 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50 cursor-pointer"
+                      >
+                        취소
+                      </button>
                     </div>
-                  </div>
-                )}
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => setConfirmDeleteReport(true)}
+                      className="inline-flex min-h-[42px] items-center gap-1.5 rounded-lg border border-red-200 bg-red-50 px-4 py-2 text-xs font-bold text-red-700 hover:bg-red-100 transition-colors cursor-pointer"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                      <span>이 학생 보고서 삭제하기</span>
+                    </button>
+                  )}
+                </div>
 
                 {deleteNotice && (
                   <div
@@ -1634,17 +1604,11 @@ export default function TeacherReview({
             ) : (
               /* 학번순 정렬 · 반별 필터 · 학생 목록 */
               <>
-                <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-3">
+                <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2">
                   <div className="rounded-xl border border-slate-200 bg-white p-4">
                     <div className="text-xs font-medium text-slate-500">제출 학생 수</div>
                     <div className="mt-1 text-2xl font-bold text-slate-900 font-mono-tabular">
                       {portfolios.length}명
-                    </div>
-                  </div>
-                  <div className="rounded-xl border border-slate-200 bg-white p-4">
-                    <div className="text-xs font-medium text-slate-500">1·2차시 / 3차시 제출</div>
-                    <div className="mt-1 text-2xl font-bold text-slate-900 font-mono-tabular">
-                      {plans.length}건 / {revisions.length}건
                     </div>
                   </div>
                   <div className="rounded-xl border border-slate-200 bg-white p-4">

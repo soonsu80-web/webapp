@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from 'react';
-import { ArrowRight, ChevronDown, ChevronUp, Code2, FileEdit, ShieldCheck, X } from 'lucide-react';
-import heroImage from '../assets/images/webapp_project_hero_1794716108520.jpg';
+import { ArrowRight, Code2, FileEdit, ShieldCheck, X } from 'lucide-react';
+import heroImage from '../assets/images/vibe_coding_hero_1794844182549.webp';
 import type { AppPlanSubmission, AppRevisionSubmission, StudentLookupIdentity } from '../types/lesson';
 import { lookupStudentReport } from '../services/planApi';
 
@@ -17,7 +17,6 @@ export default function LessonOverview({
   onStartDiscovery,
   onLoadedReportForEdit,
 }: LessonOverviewProps) {
-  const [showStandards, setShowStandards] = useState(false);
   const [imgError, setImgError] = useState(false);
   const [showLookupModal, setShowLookupModal] = useState(false);
   const [lookupGrade, setLookupGrade] = useState('');
@@ -69,14 +68,14 @@ export default function LessonOverview({
   return (
     <section id="lesson-overview" className="mx-auto max-w-6xl px-4 py-8 sm:px-6 sm:py-10">
       {/* Dark engineering hero panel with project visual */}
-      <div className="rounded-2xl border border-slate-800 bg-slate-950 p-6 text-white sm:p-8 lg:p-9">
+      <div className="rounded-2xl border border-[#1a1a7a] bg-[#000066] p-6 text-white sm:p-8 lg:p-9">
         <div className="grid gap-6 lg:grid-cols-12 lg:items-stretch lg:gap-8">
           <div className="flex flex-col justify-between lg:col-span-6">
             <div>
               <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 font-mono-tabular text-xs font-medium text-slate-400">
                 <span className="font-semibold text-blue-400">읽걷쓰AI 프로젝트 수업</span>
                 <span aria-hidden="true">·</span>
-                <span>고등학교 1학년 정보</span>
+                <span>인천남고등학교</span>
               </div>
 
               <h1 className="mt-3 text-3xl font-extrabold tracking-tight text-white sm:text-4xl text-balance">
@@ -88,57 +87,25 @@ export default function LessonOverview({
               </p>
             </div>
 
-            <div className="mt-6 space-y-3">
-              <div>
-                <button
-                  type="button"
-                  onClick={() => setShowStandards((prev) => !prev)}
-                  className="inline-flex min-h-[42px] items-center gap-1.5 rounded-lg border border-slate-700 bg-slate-900 px-3.5 py-2 text-xs font-bold text-slate-100 hover:border-slate-500 hover:bg-slate-800 transition-colors cursor-pointer"
-                >
-                  <span>관련 성취기준</span>
-                  {showStandards ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
-                </button>
+            <div className="mt-6 flex flex-wrap items-center gap-3">
+              <button
+                type="button"
+                onClick={onStartDiscovery}
+                className="inline-flex min-h-[48px] w-full items-center justify-center gap-2 rounded-lg bg-blue-600 px-6 py-3 text-sm font-bold text-white hover:bg-blue-500 transition-colors whitespace-nowrap shrink-0 cursor-pointer sm:w-auto"
+              >
+                <span>문제탐색 시작하기</span>
+                <ArrowRight className="h-4 w-4" />
+              </button>
 
-                {showStandards && (
-                  <div className="mt-3 space-y-3 rounded-xl border border-slate-700 bg-slate-900 p-4 text-xs leading-relaxed text-slate-200">
-                    <div>
-                      <div className="font-bold text-white">1차시 연계 프로젝트 목표</div>
-                      <p className="mt-1">
-                        ① 일상생활 속 문제를 해결하기 위해 웹앱의 화면 구성과 프로그래밍 원리를 분석하여 설명할 수 있다.
-                      </p>
-                    </div>
-                    <div className="border-t border-slate-700 pt-3">
-                      <div className="font-bold text-white">관련 성취기준</div>
-                      <ul className="mt-1 space-y-1">
-                        <li>[12정03-07] 다양한 제어 구조를 복합적으로 활용한 프로그램을 작성한다.</li>
-                        <li>[12정03-09] 실생활 및 다양한 학문 분야의 문제 해결을 위한 프로그램을 협력적으로 설계·구현한다.</li>
-                        <li>[12정03-10] 문제 해결을 위한 프로그램의 성능을 평가하고 공유한다.</li>
-                      </ul>
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              <div className="flex flex-wrap items-center gap-3">
-                <button
-                  type="button"
-                  onClick={onStartDiscovery}
-                  className="inline-flex min-h-[48px] w-full items-center justify-center gap-2 rounded-lg bg-blue-600 px-6 py-3 text-sm font-bold text-white hover:bg-blue-500 transition-colors whitespace-nowrap shrink-0 cursor-pointer sm:w-auto"
-                >
-                  <span>문제탐색 시작하기</span>
-                  <ArrowRight className="h-4 w-4" />
-                </button>
-
-                <button
-                  type="button"
-                  onClick={openLookupModal}
-                  className="inline-flex min-h-[48px] w-full items-center justify-center gap-2 rounded-lg border border-slate-600 bg-slate-800/90 px-5 py-3 text-sm font-bold text-white hover:border-slate-400 hover:bg-slate-700 transition-colors whitespace-nowrap shrink-0 cursor-pointer sm:w-auto"
-                >
-                  <FileEdit className="h-4 w-4 text-blue-300" />
-                  <span>내 보고서 수정하기</span>
-                  <ArrowRight className="h-4 w-4" />
-                </button>
-              </div>
+              <button
+                type="button"
+                onClick={openLookupModal}
+                className="inline-flex min-h-[48px] w-full items-center justify-center gap-2 rounded-lg border border-blue-200 bg-white px-5 py-3 text-sm font-bold text-[#000066] hover:bg-blue-50 transition-colors whitespace-nowrap shrink-0 cursor-pointer sm:w-auto"
+              >
+                <FileEdit className="h-4 w-4 text-blue-700" />
+                <span>내 보고서 수정하기</span>
+                <ArrowRight className="h-4 w-4 text-blue-700" />
+              </button>
             </div>
           </div>
 
@@ -147,7 +114,12 @@ export default function LessonOverview({
               {!imgError ? (
                 <img
                   src={heroImage}
-                  alt="노트북 코드와 화면 설계도를 보며 실생활 문제 해결 웹앱을 기획·구현하는 고등학생들의 모습"
+                  alt="스마트 교실에서 고등학생들이 화면 설계와 코드·데이터 흐름을 함께 구상하며 실생활 문제 해결 웹앱을 만드는 일러스트"
+                  width={896}
+                  height={504}
+                  loading="eager"
+                  decoding="async"
+                  fetchPriority="high"
                   referrerPolicy="no-referrer"
                   onError={() => setImgError(true)}
                   className="h-full w-full object-cover"
@@ -304,7 +276,7 @@ export default function LessonOverview({
 
       {/* 핵심 질문 & 핵심 과업 */}
       <div className="mt-6 grid gap-4 sm:grid-cols-2">
-        <div className="rounded-xl border border-slate-800 bg-slate-900 p-5 text-white">
+        <div className="rounded-xl border border-[#1a1a7a] bg-[#000066] p-5 text-white">
           <div className="font-mono-tabular text-xs font-semibold text-blue-400">핵심 질문</div>
           <p className="mt-1.5 text-base font-bold text-white leading-snug">
             현실 문제를 해결하기 위해 현실 문제를 어떻게 구조화하고 모델링하여 웹앱을 만들 것인가?
@@ -393,7 +365,7 @@ export default function LessonOverview({
             <button
               type="button"
               onClick={onStartDiscovery}
-              className="inline-flex min-h-[46px] w-full items-center justify-center gap-2 rounded-lg bg-slate-950 px-5 py-2.5 text-sm font-bold text-white hover:bg-slate-800 transition-colors cursor-pointer"
+              className="inline-flex min-h-[46px] w-full items-center justify-center gap-2 rounded-lg bg-blue-600 px-5 py-2.5 text-sm font-bold text-white hover:bg-blue-500 transition-colors cursor-pointer"
             >
               <span>1단계: 문제탐색 바로가기</span>
               <ArrowRight className="h-4 w-4" />

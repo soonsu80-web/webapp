@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useState } from 'react';
-import { Lock } from 'lucide-react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { ChevronDown, ChevronUp, Lock } from 'lucide-react';
 import LessonOverview from './components/LessonOverview';
 import ProblemDiscovery from './components/ProblemDiscovery';
 import AppPlanForm from './components/AppPlanForm';
@@ -166,6 +166,8 @@ export default function App() {
   const [editNavBlockedOpen, setEditNavBlockedOpen] = useState(false);
   const [loadingPlans, setLoadingPlans] = useState(false);
   const [teacherError, setTeacherError] = useState<string | null>(null);
+  const [showStandards, setShowStandards] = useState(false);
+  const standardsRef = useRef<HTMLDivElement>(null);
 
   const loadTeacherData = useCallback(async () => {
     setLoadingPlans(true);
@@ -236,6 +238,24 @@ export default function App() {
       cancelled = true;
     };
   }, [loadTeacherData]);
+
+  useEffect(() => {
+    if (!showStandards) return;
+    function handleOutsideClick(e: MouseEvent) {
+      if (standardsRef.current && !standardsRef.current.contains(e.target as Node)) {
+        setShowStandards(false);
+      }
+    }
+    function handleEscape(e: KeyboardEvent) {
+      if (e.key === 'Escape') setShowStandards(false);
+    }
+    document.addEventListener('mousedown', handleOutsideClick);
+    document.addEventListener('keydown', handleEscape);
+    return () => {
+      document.removeEventListener('mousedown', handleOutsideClick);
+      document.removeEventListener('keydown', handleEscape);
+    };
+  }, [showStandards]);
 
   function handleUpdateField<K extends keyof AppPlanInput>(key: K, value: AppPlanInput[K]) {
     setFormInput((prev) => {
@@ -433,16 +453,20 @@ export default function App() {
     setPlans((prev) => prev.map((item) => (item.id === updated.id ? updated : item)));
   }
 
-  function handleRemovePlan(id: string) {
-    setPlans((prev) => prev.filter((item) => item.id !== id));
-  }
-
   function handleUpdateRevision(updated: AppRevisionSubmission) {
     setRevisions((prev) => prev.map((item) => (item.id === updated.id ? updated : item)));
   }
 
-  function handleRemoveRevision(id: string) {
-    setRevisions((prev) => prev.filter((item) => item.id !== id));
+  function handleRemoveStudentReport(params: {
+    studentKey: string;
+    planIds: string[];
+    revisionIds: string[];
+  }) {
+    const planIdSet = new Set(params.planIds);
+    const revisionIdSet = new Set(params.revisionIds);
+    setPlans((prev) => prev.filter((item) => !planIdSet.has(item.id)));
+    setRevisions((prev) => prev.filter((item) => !revisionIdSet.has(item.id)));
+    setStageEvaluations((prev) => prev.filter((item) => item.studentKey !== params.studentKey));
   }
 
   function handleUpdateGalleryItem(updated: GalleryItem) {
@@ -463,6 +487,7 @@ export default function App() {
   }
 
   function navigateToPage(page: PageKey) {
+    setShowStandards(false);
     if (editingReport?.active && !EDIT_ALLOWED_PAGES.has(page)) {
       setEditNavBlockedOpen(true);
       return;
@@ -480,18 +505,43 @@ export default function App() {
     <div className="min-h-screen flex flex-col bg-[#eef2f6] text-slate-950 print:bg-white">
       {/* Top Navigation Bar */}
       {!isPrintScreenActive && (
-        <header className="sticky top-0 z-30 border-b border-slate-700 bg-slate-900 text-white print:hidden">
-        <div className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-4 py-3.5 sm:px-6">
-          <a
-            href="#top"
-            onClick={(e) => {
-              e.preventDefault();
-              navigateToPage('overview');
-            }}
-            className="text-lg font-extrabold tracking-tight text-white whitespace-nowrap shrink-0 sm:text-xl"
-          >
-            바이브 코딩 프로젝트
-          </a>
+        <header className="sticky top-0 z-30 border-b border-white/15 bg-[#000066] text-white print:hidden">
+        <div className="relative mx-auto flex max-w-6xl items-center justify-between gap-4 px-4 py-3.5 sm:px-6">
+          <div ref={standardsRef} className="flex items-center gap-2.5 sm:gap-3">
+            <a
+              href="#top"
+              onClick={(e) => {
+                e.preventDefault();
+                navigateToPage('overview');
+              }}
+              className="text-lg font-extrabold tracking-tight text-white whitespace-nowrap shrink-0 sm:text-xl"
+            >
+              바이브 코딩 프로젝트
+            </a>
+
+            <button
+              type="button"
+              aria-expanded={showStandards}
+              onClick={() => setShowStandards((prev) => !prev)}
+              className="inline-flex min-h-[36px] items-center gap-1.5 rounded-lg border border-blue-300/55 bg-blue-600/35 px-3 py-1.5 text-xs font-bold text-white hover:border-blue-200 hover:bg-blue-600/50 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+            >
+              <span>관련 성취기준</span>
+              {showStandards ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+            </button>
+
+            {showStandards && (
+              <div className="absolute left-4 right-4 top-full z-40 mt-2 rounded-xl border border-slate-700 bg-slate-900 p-4 text-xs leading-relaxed text-slate-200 shadow-xl sm:left-6 sm:right-auto sm:w-96">
+                <div>
+                  <div className="font-bold text-white">관련 성취기준</div>
+                  <ul className="mt-1 space-y-1">
+                    <li>[12정03-07] 다양한 제어 구조를 복합적으로 활용한 프로그램을 작성한다.</li>
+                    <li>[12정03-09] 실생활 및 다양한 학문 분야의 문제 해결을 위한 프로그램을 협력적으로 설계·구현한다.</li>
+                    <li>[12정03-10] 문제 해결을 위한 프로그램의 성능을 평가하고 공유한다.</li>
+                  </ul>
+                </div>
+              </div>
+            )}
+          </div>
 
           <nav aria-label="주요 메뉴" className="hidden md:flex items-center gap-1.5 lg:gap-2">
             {MENU_ITEMS.map((item) => {
@@ -506,8 +556,8 @@ export default function App() {
                     active
                       ? 'bg-blue-500 text-white'
                       : lockedInEdit
-                        ? 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'
-                        : 'text-slate-200 hover:bg-slate-800 hover:text-white'
+                        ? 'text-slate-300 hover:bg-white/10 hover:text-white'
+                        : 'text-slate-100 hover:bg-white/10 hover:text-white'
                   }`}
                 >
                   {lockedInEdit && <Lock className="h-3.5 w-3.5 shrink-0" />}
@@ -659,9 +709,8 @@ export default function App() {
             onRefresh={loadTeacherData}
             onPrintModeChange={setTeacherPrintMode}
             onUpdatePlan={handleUpdatePlan}
-            onRemovePlan={handleRemovePlan}
             onUpdateRevision={handleUpdateRevision}
-            onRemoveRevision={handleRemoveRevision}
+            onRemoveStudentReport={handleRemoveStudentReport}
             onUpdateGalleryItem={handleUpdateGalleryItem}
             onRemoveGalleryItem={handleRemoveGalleryItem}
             onUpdateEvaluation={handleUpdateEvaluation}

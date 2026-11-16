@@ -855,3 +855,44 @@ export async function saveStageEvaluationToApi(params: {
   }
 }
 
+export async function deleteStudentReportFromApi(params: {
+  studentKey: string;
+  planIds: string[];
+  revisionIds: string[];
+}): Promise<{
+  connected: boolean;
+  ok: boolean;
+  unauthorized?: boolean;
+  error?: string;
+}> {
+  try {
+    const res = await fetch('/api/teacher/student-report/delete', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+      },
+      credentials: 'same-origin',
+      body: JSON.stringify(params),
+    });
+    if (!isJsonResponse(res)) {
+      return { connected: false, ok: false, error: '인증/저장 서버(/api)에 연결되지 않았습니다.' };
+    }
+    const data = await res.json();
+    if (res.status === 401) {
+      return { connected: true, ok: false, unauthorized: true, error: '교사 세션이 만료되었습니다.' };
+    }
+    if (!res.ok) {
+      return {
+        connected: true,
+        ok: false,
+        error: typeof data?.error === 'string' ? data.error : '학생 보고서 삭제에 실패했습니다.',
+      };
+    }
+    return { connected: true, ok: true };
+  } catch {
+    return { connected: false, ok: false, error: '서버와 통신하지 못했습니다.' };
+  }
+}
+
+
