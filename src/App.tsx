@@ -8,7 +8,6 @@ import TeacherReview from './components/TeacherReview';
 import type {
   AppPlanInput,
   AppPlanSubmission,
-  AppRevisionInput,
   AppRevisionSubmission,
   GalleryItem,
 } from './types/lesson';
@@ -35,10 +34,13 @@ const MENU_ITEMS: { key: PageKey; label: string }[] = [
 const SESSION_FORM_KEY = 'vibe_coding_p1_form_input';
 const SESSION_REVISION_KEY = 'vibe_coding_p3_revision_input';
 
-export type RevisionDraftState = Omit<
-  AppRevisionInput,
-  'grade' | 'classRoom' | 'studentNumber' | 'studentName'
->;
+export interface RevisionDraftState {
+  beforeImage: string;
+  testedItems: string[];
+  fixedItems: string[];
+  afterImage: string;
+  reasonAndResult: string;
+}
 
 const EMPTY_INPUT: AppPlanInput = {
   grade: '',
@@ -62,11 +64,26 @@ const EMPTY_INPUT: AppPlanInput = {
 
 const EMPTY_REVISION_DRAFT: RevisionDraftState = {
   beforeImage: '',
-  testedContent: '',
-  fixedAfterTest: '',
+  testedItems: [''],
+  fixedItems: [''],
   afterImage: '',
   reasonAndResult: '',
 };
+
+function normalizeSentenceArray(arr: unknown, fallbackText: unknown): string[] {
+  if (Array.isArray(arr)) {
+    const items = arr.map((v) => (typeof v === 'string' ? v : ''));
+    return items.length > 0 ? items : [''];
+  }
+  if (typeof fallbackText === 'string' && fallbackText.trim()) {
+    const lines = fallbackText
+      .split(/\r?\n/)
+      .map((line) => line.replace(/^\d+\.\s*/, '').trim())
+      .filter(Boolean);
+    return lines.length > 0 ? lines : [''];
+  }
+  return [''];
+}
 
 function loadSessionForm(): AppPlanInput {
   try {
@@ -84,23 +101,15 @@ function loadSessionRevision(): RevisionDraftState {
     const raw = window.sessionStorage.getItem(SESSION_REVISION_KEY);
     if (!raw) return EMPTY_REVISION_DRAFT;
     const parsed = JSON.parse(raw) as Partial<RevisionDraftState> & {
+      testedContent?: string;
+      fixedAfterTest?: string;
       beforeCode?: string;
       afterCode?: string;
     };
     return {
       beforeImage: typeof parsed.beforeImage === 'string' ? parsed.beforeImage : '',
-      testedContent:
-        typeof parsed.testedContent === 'string'
-          ? parsed.testedContent
-          : typeof parsed.beforeCode === 'string'
-            ? parsed.beforeCode
-            : '',
-      fixedAfterTest:
-        typeof parsed.fixedAfterTest === 'string'
-          ? parsed.fixedAfterTest
-          : typeof parsed.afterCode === 'string'
-            ? parsed.afterCode
-            : '',
+      testedItems: normalizeSentenceArray(parsed.testedItems, parsed.testedContent ?? parsed.beforeCode),
+      fixedItems: normalizeSentenceArray(parsed.fixedItems, parsed.fixedAfterTest ?? parsed.afterCode),
       afterImage: typeof parsed.afterImage === 'string' ? parsed.afterImage : '',
       reasonAndResult: typeof parsed.reasonAndResult === 'string' ? parsed.reasonAndResult : '',
     };

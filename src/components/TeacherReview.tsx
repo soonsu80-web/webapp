@@ -575,8 +575,7 @@ export default function TeacherReview({
       '저장할 데이터',
       '제약사항',
       '적용할 프로그래밍 원리',
-      '사용할 프롬프트 초안',
-      '프롬프트 완성본',
+      '프롬프트',
       '안전 약속 확인',
       '2차시 평가(상/중/하)',
       '2차시 교사 메모',
@@ -604,8 +603,7 @@ export default function TeacherReview({
       item.plan?.dataToStore ?? '',
       item.plan?.constraints ?? '',
       item.plan?.programmingPrinciples ?? '',
-      item.plan ? item.plan.promptDraft?.trim() || buildPromptDraft(item.plan) : '',
-      item.plan?.finalPrompt ?? '',
+      item.plan ? item.plan.finalPrompt?.trim() || item.plan.promptDraft?.trim() || buildPromptDraft(item.plan) : '',
       item.plan ? (item.plan.safetyChecked ? '확인' : '미확인') : '',
       item.plan?.rubricLevel ?? '',
       item.plan?.teacherNote ?? '',
@@ -1022,19 +1020,13 @@ export default function TeacherReview({
                           </div>
                         </div>
 
-                        <div className="grid gap-4 lg:grid-cols-2">
-                          <div>
-                            <div className="text-xs font-semibold text-slate-500">사용할 프롬프트 초안</div>
-                            <pre className="mt-1.5 max-h-72 overflow-auto whitespace-pre-wrap break-words rounded-lg border border-slate-200 bg-slate-50 p-3.5 font-sans text-xs leading-relaxed text-slate-700">
-                              {selectedPortfolio.plan.promptDraft?.trim() || buildPromptDraft(selectedPortfolio.plan)}
-                            </pre>
-                          </div>
-                          <div>
-                            <div className="text-xs font-semibold text-slate-500">프롬프트 완성본</div>
-                            <p className="mt-1.5 max-h-72 overflow-auto whitespace-pre-wrap rounded-lg border border-slate-200 bg-white p-3.5 text-xs leading-relaxed text-slate-900">
-                              {selectedPortfolio.plan.finalPrompt?.trim() || '작성된 프롬프트 완성본이 없습니다.'}
-                            </p>
-                          </div>
+                        <div>
+                          <div className="text-xs font-semibold text-slate-500">프롬프트</div>
+                          <pre className="mt-1.5 max-h-72 overflow-auto whitespace-pre-wrap break-words rounded-lg border border-slate-200 bg-slate-50 p-3.5 font-sans text-xs leading-relaxed text-slate-800">
+                            {selectedPortfolio.plan.finalPrompt?.trim() ||
+                              selectedPortfolio.plan.promptDraft?.trim() ||
+                              buildPromptDraft(selectedPortfolio.plan)}
+                          </pre>
                         </div>
                       </div>
 

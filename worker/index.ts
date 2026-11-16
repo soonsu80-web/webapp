@@ -295,9 +295,7 @@ function validatePlanBody(body: unknown) {
       error: '앱 기획서 4가지 항목(기능, 저장 데이터, 제약사항, 프로그래밍 원리)을 모두 입력해 주세요.',
     };
   }
-  if (!finalPrompt) {
-    return { ok: false as const, error: '프롬프트 완성본을 작성해 주세요.' };
-  }
+  const resolvedFinalPrompt = finalPrompt || promptDraft;
   if (!safetyChecked) {
     return { ok: false as const, error: '디지털 안전 약속 확인 체크를 완료해 주세요.' };
   }
@@ -321,7 +319,7 @@ function validatePlanBody(body: unknown) {
       constraints,
       programmingPrinciples,
       promptDraft,
-      finalPrompt,
+      finalPrompt: resolvedFinalPrompt,
       safetyChecked,
     },
   };

@@ -1,17 +1,16 @@
 import { useState, type ChangeEvent, type ClipboardEvent, type DragEvent, type FormEvent } from 'react';
-import { ArrowLeft, CheckCircle2, Clock, ImagePlus, RotateCcw, Send, Trash2, Upload } from 'lucide-react';
-import type { AppPlanInput, AppRevisionInput, AppRevisionSubmission } from '../types/lesson';
+import { ArrowLeft, CheckCircle2, Clock, ImagePlus, Plus, RotateCcw, Send, Trash2, Upload } from 'lucide-react';
+import type { AppPlanInput, AppRevisionSubmission } from '../types/lesson';
+import type { RevisionDraftState } from '../App';
 import { submitRevisionToApi, type BackendMode } from '../services/planApi';
-
-type RevisionDraftShape = Omit<AppRevisionInput, 'grade' | 'classRoom' | 'studentNumber' | 'studentName'>;
 
 interface RevisionPageProps {
   authorForm: Pick<AppPlanInput, 'grade' | 'classRoom' | 'studentNumber' | 'studentName' | 'problemSummary' | 'appTitle'>;
   onGoToDiscovery: () => void;
-  revisionDraft: RevisionDraftShape;
-  onUpdateRevisionField: <K extends keyof RevisionDraftShape>(
+  revisionDraft: RevisionDraftState;
+  onUpdateRevisionField: <K extends keyof RevisionDraftState>(
     key: K,
-    value: RevisionDraftShape[K],
+    value: RevisionDraftState[K],
   ) => void;
   onResetRevisionDraft: () => void;
   backendMode: BackendMode;
@@ -285,12 +284,15 @@ export default function RevisionPage({
       setErrorMessage('첫 프롬프트 결과 처음 완성된 웹앱 화면 캡처 이미지를 올려 주세요.');
       return;
     }
-    if (!revisionDraft.testedContent.trim()) {
-      setErrorMessage('웹앱을 직접 사용해 보고 테스트한 내용을 입력해 주세요.');
+    const cleanTested = revisionDraft.testedItems.map((s) => s.trim()).filter(Boolean);
+    const cleanFixed = revisionDraft.fixedItems.map((s) => s.trim()).filter(Boolean);
+
+    if (cleanTested.length === 0) {
+      setErrorMessage('웹앱을 직접 사용해 보고 테스트한 내용을 한 문장 이상 입력해 주세요.');
       return;
     }
-    if (!revisionDraft.fixedAfterTest.trim()) {
-      setErrorMessage('테스트 후 수정한 내용을 입력해 주세요.');
+    if (cleanFixed.length === 0) {
+      setErrorMessage('테스트 후 수정한 내용을 한 문장 이상 입력해 주세요.');
       return;
     }
     if (!revisionDraft.afterImage) {
@@ -302,6 +304,13 @@ export default function RevisionPage({
       return;
     }
 
+    const testedContent = cleanTested
+      .map((line, idx) => `${idx + 1}. ${line.replace(/^\d+\.\s*/, '')}`)
+      .join('\n');
+    const fixedAfterTest = cleanFixed
+      .map((line, idx) => `${idx + 1}. ${line.replace(/^\d+\.\s*/, '')}`)
+      .join('\n');
+
     setSubmitting(true);
     try {
       const result = await submitRevisionToApi({
@@ -310,8 +319,8 @@ export default function RevisionPage({
         studentNumber: authorForm.studentNumber,
         studentName: authorForm.studentName,
         beforeImage: revisionDraft.beforeImage,
-        testedContent: revisionDraft.testedContent,
-        fixedAfterTest: revisionDraft.fixedAfterTest,
+        testedContent,
+        fixedAfterTest,
         afterImage: revisionDraft.afterImage,
         reasonAndResult: revisionDraft.reasonAndResult,
       });
@@ -343,10 +352,29 @@ export default function RevisionPage({
     onResetRevisionDraft();
   }
 
+  function updateSentenceItem(field: 'testedItems' | 'fixedItems', index: number, value: string) {
+    const cleanLine = value.replace(/\r?\n/g, ' ');
+    const next = revisionDraft[field].map((item, idx) => (idx === index ? cleanLine : item));
+    onUpdateRevisionField(field, next);
+    clearNotices();
+  }
+
+  function addSentenceItem(field: 'testedItems' | 'fixedItems') {
+    onUpdateRevisionField(field, [...revisionDraft[field], '']);
+    clearNotices();
+  }
+
+  function removeSentenceItem(field: 'testedItems' | 'fixedItems', index: number) {
+    if (revisionDraft[field].length <= 1) return;
+    const next = revisionDraft[field].filter((_, idx) => idx !== index);
+    onUpdateRevisionField(field, next);
+    clearNotices();
+  }
+
   const hasAnyRevisionInput =
     Boolean(revisionDraft.beforeImage) ||
-    Boolean(revisionDraft.testedContent) ||
-    Boolean(revisionDraft.fixedAfterTest) ||
+    revisionDraft.testedItems.some((s) => s.trim().length > 0) ||
+    revisionDraft.fixedItems.some((s) => s.trim().length > 0) ||
     Boolean(revisionDraft.afterImage) ||
     Boolean(revisionDraft.reasonAndResult) ||
     Boolean(lastSavedRevision);
@@ -465,56 +493,120 @@ export default function RevisionPage({
         </div>
 
         {/* 02. 내가 테스트한 것은? */}
-        <div className="rounded-xl border border-slate-300 bg-white p-4 sm:p-6 space-y-5">
+        <div className="rounded-xl border border-slate-300 bg-white p-4 sm:p-6 space-y-6">
           <div className="border-b border-slate-100 pb-3">
             <div className="text-xs font-medium text-slate-500">02. 웹앱 사용 테스트 및 수정 정리</div>
             <h2 className="mt-0.5 text-base font-bold text-slate-900">내가 테스트한 것은?</h2>
             <p className="mt-1 text-xs text-slate-600">
-              완성된 나의 웹앱을 실제로 사용해 보며 테스트한 내용과, 테스트 결과를 바탕으로 수정한 내용을 각각 나누어 정리해 주세요.
+              테스트한 내용과 테스트 후 수정한 내용을 구분해 한 문장씩 작성하세요. 더 입력하려면 추가 버튼을 누르세요.
             </p>
           </div>
 
-          <div className="grid gap-5 lg:grid-cols-2">
-            <div>
-              <label htmlFor="testedContent" className="block text-sm font-semibold text-slate-800">
+          {/* ① 웹앱을 사용해 보고 테스트한 것 */}
+          <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 space-y-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="text-sm font-bold text-slate-900">
                 ① 웹앱을 사용해 보고 테스트한 것
-              </label>
-              <textarea
-                id="testedContent"
-                rows={6}
-                maxLength={5000}
-                value={revisionDraft.testedContent}
-                onChange={(e) => {
-                  onUpdateRevisionField('testedContent', e.target.value);
-                  clearNotices();
-                }}
-                placeholder="예: 입력창에 빈 칸을 넣고 추가 버튼을 눌렀을 때 어떻게 되는지, 모바일 화면 크기에서 버튼이 잘 눌리는지 여러 번 직접 사용해 보며 테스트했습니다."
-                className="mt-2 w-full rounded-lg border border-slate-300 bg-white px-3.5 py-3 text-base text-slate-900 placeholder:text-slate-400 focus:border-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-600/20 sm:text-sm"
-              />
-              <div className="mt-1 text-right text-[11px] text-slate-400 font-mono-tabular">
-                {revisionDraft.testedContent.length} / 5000
               </div>
+              <span className="text-[11px] font-medium text-slate-500">한 칸에 한 문장씩 입력</span>
             </div>
 
-            <div>
-              <label htmlFor="fixedAfterTest" className="block text-sm font-semibold text-slate-800">
+            <div className="space-y-2.5">
+              {revisionDraft.testedItems.map((sentence, idx) => (
+                <div key={`tested-${idx}`} className="flex items-center gap-2">
+                  <span className="w-6 shrink-0 text-center font-mono-tabular text-xs font-bold text-blue-700">
+                    {idx + 1}.
+                  </span>
+                  <input
+                    type="text"
+                    maxLength={200}
+                    value={sentence}
+                    onChange={(e) => updateSentenceItem('testedItems', idx, e.target.value)}
+                    aria-label={`테스트한 것 ${idx + 1}`}
+                    placeholder={
+                      idx === 0
+                        ? '예: 입력창이 비어 있을 때 추가 버튼을 누르면 어떻게 동작하는지 테스트했습니다.'
+                        : '추가로 테스트한 내용을 한 문장으로 입력하세요.'
+                    }
+                    className="min-h-[44px] flex-1 rounded-lg border border-slate-300 bg-white px-3.5 py-2.5 text-base text-slate-900 placeholder:text-slate-400 focus:border-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-600/20 sm:text-sm"
+                  />
+                  {revisionDraft.testedItems.length > 1 && (
+                    <button
+                      type="button"
+                      onClick={() => removeSentenceItem('testedItems', idx)}
+                      aria-label={`테스트한 것 ${idx + 1}번 삭제`}
+                      className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-lg border border-slate-300 bg-white text-slate-500 hover:border-red-200 hover:bg-red-50 hover:text-red-700 transition-colors cursor-pointer shrink-0"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+
+            <div className="pt-1">
+              <button
+                type="button"
+                onClick={() => addSentenceItem('testedItems')}
+                className="inline-flex min-h-[40px] items-center gap-1.5 rounded-lg border border-blue-200 bg-white px-3.5 py-2 text-xs font-semibold text-blue-700 hover:bg-blue-50 transition-colors cursor-pointer"
+              >
+                <Plus className="h-3.5 w-3.5" />
+                <span>테스트한 것 추가</span>
+              </button>
+            </div>
+          </div>
+
+          {/* ② 테스트 후 수정한 것 */}
+          <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 space-y-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="text-sm font-bold text-slate-900">
                 ② 테스트 후 수정한 것
-              </label>
-              <textarea
-                id="fixedAfterTest"
-                rows={6}
-                maxLength={5000}
-                value={revisionDraft.fixedAfterTest}
-                onChange={(e) => {
-                  onUpdateRevisionField('fixedAfterTest', e.target.value);
-                  clearNotices();
-                }}
-                placeholder="예: 빈 칸일 때는 등록되지 않고 안내 문구가 뜨도록 고쳤고, 제목 글자 크기를 키우고 버튼 색상을 파란색으로 수정했습니다."
-                className="mt-2 w-full rounded-lg border border-slate-300 bg-white px-3.5 py-3 text-base text-slate-900 placeholder:text-slate-400 focus:border-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-600/20 sm:text-sm"
-              />
-              <div className="mt-1 text-right text-[11px] text-slate-400 font-mono-tabular">
-                {revisionDraft.fixedAfterTest.length} / 5000
               </div>
+              <span className="text-[11px] font-medium text-slate-500">한 칸에 한 문장씩 입력</span>
+            </div>
+
+            <div className="space-y-2.5">
+              {revisionDraft.fixedItems.map((sentence, idx) => (
+                <div key={`fixed-${idx}`} className="flex items-center gap-2">
+                  <span className="w-6 shrink-0 text-center font-mono-tabular text-xs font-bold text-blue-700">
+                    {idx + 1}.
+                  </span>
+                  <input
+                    type="text"
+                    maxLength={200}
+                    value={sentence}
+                    onChange={(e) => updateSentenceItem('fixedItems', idx, e.target.value)}
+                    aria-label={`테스트 후 수정한 것 ${idx + 1}`}
+                    placeholder={
+                      idx === 0
+                        ? '예: 빈 칸일 때는 안내 문구가 뜨고 등록되지 않도록 수정했습니다.'
+                        : '추가로 수정한 내용을 한 문장으로 입력하세요.'
+                    }
+                    className="min-h-[44px] flex-1 rounded-lg border border-slate-300 bg-white px-3.5 py-2.5 text-base text-slate-900 placeholder:text-slate-400 focus:border-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-600/20 sm:text-sm"
+                  />
+                  {revisionDraft.fixedItems.length > 1 && (
+                    <button
+                      type="button"
+                      onClick={() => removeSentenceItem('fixedItems', idx)}
+                      aria-label={`테스트 후 수정한 것 ${idx + 1}번 삭제`}
+                      className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-lg border border-slate-300 bg-white text-slate-500 hover:border-red-200 hover:bg-red-50 hover:text-red-700 transition-colors cursor-pointer shrink-0"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+
+            <div className="pt-1">
+              <button
+                type="button"
+                onClick={() => addSentenceItem('fixedItems')}
+                className="inline-flex min-h-[40px] items-center gap-1.5 rounded-lg border border-blue-200 bg-white px-3.5 py-2 text-xs font-semibold text-blue-700 hover:bg-blue-50 transition-colors cursor-pointer"
+              >
+                <Plus className="h-3.5 w-3.5" />
+                <span>수정한 것 추가</span>
+              </button>
             </div>
           </div>
         </div>
