@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from 'react';
 import { ArrowRight, Code2, FileEdit, ShieldCheck, X } from 'lucide-react';
-import heroImage from '../assets/images/vibe_coding_hero_1794844182549.webp';
+import heroImage from '../assets/images/vibe_coding_blueprint_1794844440218.webp';
 import type { AppPlanSubmission, AppRevisionSubmission, StudentLookupIdentity } from '../types/lesson';
 import { lookupStudentReport } from '../services/planApi';
 
@@ -114,7 +114,7 @@ export default function LessonOverview({
               {!imgError ? (
                 <img
                   src={heroImage}
-                  alt="스마트 교실에서 고등학생들이 화면 설계와 코드·데이터 흐름을 함께 구상하며 실생활 문제 해결 웹앱을 만드는 일러스트"
+                  alt="종이 화면 스케치와 블록 아이디어가 순서도·데이터·코드를 거쳐 노트북 속 웹앱 화면으로 완성되는 일러스트"
                   width={896}
                   height={504}
                   loading="eager"
