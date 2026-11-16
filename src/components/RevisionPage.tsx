@@ -1,18 +1,12 @@
 import { useState, type ChangeEvent, type ClipboardEvent, type DragEvent, type FormEvent } from 'react';
-import { ArrowLeft, CheckCircle2, Clock, ImagePlus, Plus, RotateCcw, Send, Trash2, Upload } from 'lucide-react';
-import type { AppPlanInput, AppRevisionSubmission, CodeChangePair } from '../types/lesson';
+import { ArrowLeft, CheckCircle2, Clock, ImagePlus, RotateCcw, Send, Trash2, Upload } from 'lucide-react';
+import type { AppPlanInput, AppRevisionInput, AppRevisionSubmission } from '../types/lesson';
 import { submitRevisionToApi, type BackendMode } from '../services/planApi';
-import { serializeCodeChanges } from '../utils/revisionCodeBlocks';
 
-interface RevisionDraftShape {
-  beforeImage: string;
-  codeChanges: CodeChangePair[];
-  afterImage: string;
-  reasonAndResult: string;
-}
+type RevisionDraftShape = Omit<AppRevisionInput, 'grade' | 'classRoom' | 'studentNumber' | 'studentName'>;
 
 interface RevisionPageProps {
-  authorForm: Pick<AppPlanInput, 'grade' | 'classRoom' | 'studentName' | 'problemSummary'>;
+  authorForm: Pick<AppPlanInput, 'grade' | 'classRoom' | 'studentNumber' | 'studentName' | 'problemSummary' | 'appTitle'>;
   onGoToDiscovery: () => void;
   revisionDraft: RevisionDraftShape;
   onUpdateRevisionField: <K extends keyof RevisionDraftShape>(
@@ -26,14 +20,18 @@ interface RevisionPageProps {
   onBackendModeChange: (mode: BackendMode) => void;
 }
 
-function formatAuthorSummary(author: Pick<AppPlanInput, 'grade' | 'classRoom' | 'studentName'>): string {
+function formatAuthorSummary(
+  author: Pick<AppPlanInput, 'grade' | 'classRoom' | 'studentNumber' | 'studentName'>,
+): string {
   const g = author.grade.trim();
   const c = author.classRoom.trim();
+  const num = author.studentNumber.trim();
   const n = author.studentName.trim();
-  if (!g && !c && !n) return '미입력';
+  if (!g && !c && !num && !n) return '미입력';
   const gradeText = g ? (g.endsWith('학년') ? g : `${g}학년`) : '';
   const classText = c ? (c.endsWith('반') ? c : `${c}반`) : '';
-  return [gradeText, classText, n].filter(Boolean).join(' ');
+  const numText = num ? (num.endsWith('번') ? num : `${num}번`) : '';
+  return [gradeText, classText, numText, n].filter(Boolean).join(' ');
 }
 
 const MAX_IMAGE_DATA_URL_LENGTH = 420000;
@@ -263,40 +261,13 @@ export default function RevisionPage({
   const authorComplete =
     authorForm.grade.trim().length > 0 &&
     authorForm.classRoom.trim().length > 0 &&
+    authorForm.studentNumber.trim().length > 0 &&
     authorForm.studentName.trim().length > 0;
 
   function clearNotices() {
     if (errorMessage) setErrorMessage(null);
     if (missingAuthor) setMissingAuthor(false);
     if (successMessage) setSuccessMessage(null);
-  }
-
-  const codeChanges =
-    revisionDraft.codeChanges.length > 0
-      ? revisionDraft.codeChanges
-      : [{ beforeCode: '', afterCode: '' }];
-
-  function handleCodeChange(index: number, field: keyof CodeChangePair, value: string) {
-    const updated = codeChanges.map((item, idx) =>
-      idx === index ? { ...item, [field]: value } : item,
-    );
-    onUpdateRevisionField('codeChanges', updated);
-    clearNotices();
-  }
-
-  function handleAddCodeBlock() {
-    if (codeChanges.length >= 8) return;
-    onUpdateRevisionField('codeChanges', [...codeChanges, { beforeCode: '', afterCode: '' }]);
-    clearNotices();
-  }
-
-  function handleRemoveCodeBlock(index: number) {
-    if (codeChanges.length <= 1) return;
-    onUpdateRevisionField(
-      'codeChanges',
-      codeChanges.filter((_, idx) => idx !== index),
-    );
-    clearNotices();
   }
 
   async function handleSubmit(e: FormEvent) {
@@ -307,43 +278,40 @@ export default function RevisionPage({
 
     if (!authorComplete) {
       setMissingAuthor(true);
-      setErrorMessage('‘문제탐색’ 페이지에서 작성자의 학년, 반, 성명을 먼저 입력해 주세요.');
+      setErrorMessage('‘문제탐색’ 페이지에서 작성자의 학년, 반, 번호, 성명을 먼저 입력해 주세요.');
       return;
     }
     if (!revisionDraft.beforeImage) {
       setErrorMessage('첫 프롬프트 결과 처음 완성된 웹앱 화면 캡처 이미지를 올려 주세요.');
       return;
     }
-
-    for (let i = 0; i < codeChanges.length; i += 1) {
-      const pair = codeChanges[i];
-      if (!pair.beforeCode.trim() || !pair.afterCode.trim()) {
-        const prefix = codeChanges.length > 1 ? `수정 코드 ${i + 1}의 ` : '';
-        setErrorMessage(`${prefix}수정 전 코드와 수정 후 코드를 모두 붙여넣어 입력해 주세요.`);
-        return;
-      }
+    if (!revisionDraft.testedContent.trim()) {
+      setErrorMessage('웹앱을 직접 사용해 보고 테스트한 내용을 입력해 주세요.');
+      return;
     }
-
+    if (!revisionDraft.fixedAfterTest.trim()) {
+      setErrorMessage('테스트 후 수정한 내용을 입력해 주세요.');
+      return;
+    }
     if (!revisionDraft.afterImage) {
       setErrorMessage('수정 결과 바뀐 웹앱 화면 캡처 이미지를 올려 주세요.');
       return;
     }
     if (!revisionDraft.reasonAndResult.trim()) {
-      setErrorMessage('해당 코드를 수정한 이유와 적용 결과를 서술해 주세요.');
+      setErrorMessage('수정한 이유와 적용 결과를 서술해 주세요.');
       return;
     }
-
-    const { beforeCode, afterCode } = serializeCodeChanges(codeChanges);
 
     setSubmitting(true);
     try {
       const result = await submitRevisionToApi({
         grade: authorForm.grade,
         classRoom: authorForm.classRoom,
+        studentNumber: authorForm.studentNumber,
         studentName: authorForm.studentName,
         beforeImage: revisionDraft.beforeImage,
-        beforeCode,
-        afterCode,
+        testedContent: revisionDraft.testedContent,
+        fixedAfterTest: revisionDraft.fixedAfterTest,
         afterImage: revisionDraft.afterImage,
         reasonAndResult: revisionDraft.reasonAndResult,
       });
@@ -377,8 +345,8 @@ export default function RevisionPage({
 
   const hasAnyRevisionInput =
     Boolean(revisionDraft.beforeImage) ||
-    codeChanges.some((c) => Boolean(c.beforeCode) || Boolean(c.afterCode)) ||
-    codeChanges.length > 1 ||
+    Boolean(revisionDraft.testedContent) ||
+    Boolean(revisionDraft.fixedAfterTest) ||
     Boolean(revisionDraft.afterImage) ||
     Boolean(revisionDraft.reasonAndResult) ||
     Boolean(lastSavedRevision);
@@ -401,10 +369,10 @@ export default function RevisionPage({
             </span>
           </div>
           <h1 className="mt-1.5 text-2xl font-extrabold tracking-tight text-slate-950 sm:text-3xl">
-            첫 웹앱 화면 점검 및 코드 직접 수정 기록
+            웹앱 테스트 점검 및 수정 보완 기록
           </h1>
           <p className="mt-1.5 text-sm text-slate-600">
-            첫 프롬프트로 완성된 웹앱 화면과 내가 직접 수정한 코드(수정 전·후), 바뀐 화면 캡처, 수정 이유와 적용 결과를 기록하세요.
+            완성된 웹앱을 직접 사용해 보고 테스트한 내용과 수정한 사항, 바뀐 화면 캡처, 수정 이유 및 적용 결과를 정리하세요.
           </p>
         </div>
 
@@ -450,7 +418,10 @@ export default function RevisionPage({
             </div>
             <div className="mt-1 text-sm font-semibold text-slate-900">
               작성자: {formatAuthorSummary(authorForm)}
-              {authorForm.problemSummary.trim() && (
+              {authorForm.appTitle.trim() && (
+                <span className="font-semibold text-blue-800"> · {authorForm.appTitle.trim()}</span>
+              )}
+              {!authorForm.appTitle.trim() && authorForm.problemSummary.trim() && (
                 <span className="font-normal text-slate-600"> · {authorForm.problemSummary.trim()}</span>
               )}
             </div>
@@ -468,7 +439,6 @@ export default function RevisionPage({
       </div>
 
       <form onSubmit={handleSubmit} className="mt-6 space-y-6 sm:space-y-8">
-
         {/* 01. 첫 프롬프트 결과 화면 캡처 */}
         <div className="rounded-xl border border-slate-300 bg-white p-4 sm:p-6 space-y-4">
           <div className="border-b border-slate-100 pb-3">
@@ -494,118 +464,59 @@ export default function RevisionPage({
           />
         </div>
 
-        {/* 02. 내가 직접 수정한 코드 (수정 전 / 수정 후) */}
+        {/* 02. 내가 테스트한 것은? */}
         <div className="rounded-xl border border-slate-300 bg-white p-4 sm:p-6 space-y-5">
-          <div className="flex flex-wrap items-start justify-between gap-3 border-b border-slate-100 pb-3">
+          <div className="border-b border-slate-100 pb-3">
+            <div className="text-xs font-medium text-slate-500">02. 웹앱 사용 테스트 및 수정 정리</div>
+            <h2 className="mt-0.5 text-base font-bold text-slate-900">내가 테스트한 것은?</h2>
+            <p className="mt-1 text-xs text-slate-600">
+              완성된 나의 웹앱을 실제로 사용해 보며 테스트한 내용과, 테스트 결과를 바탕으로 수정한 내용을 각각 나누어 정리해 주세요.
+            </p>
+          </div>
+
+          <div className="grid gap-5 lg:grid-cols-2">
             <div>
-              <div className="text-xs font-medium text-slate-500">02. 코드 읽기 및 직접 수정</div>
-              <h2 className="mt-0.5 text-base font-bold text-slate-900">
-                내가 직접 수정한 코드는 무엇인가? (수정 전 코드 · 수정 후 코드)
-              </h2>
-              <p className="mt-1 text-xs text-slate-600">
-                생성된 코드 중 내가 직접 찾아서 고친 부분을 복사하여 수정 전 코드와 수정 후 코드 칸에 각각 붙여넣어 주세요.
-              </p>
-            </div>
-
-            {codeChanges.length < 8 && (
-              <button
-                type="button"
-                onClick={handleAddCodeBlock}
-                className="inline-flex min-h-[40px] items-center gap-1.5 rounded-lg border border-blue-700 bg-blue-50 px-3.5 py-2 text-xs font-bold text-blue-800 hover:bg-blue-100 transition-colors cursor-pointer whitespace-nowrap shrink-0"
-              >
-                <Plus className="h-4 w-4" />
-                <span>수정 코드 추가하기</span>
-              </button>
-            )}
-          </div>
-
-          <div className="space-y-5">
-            {codeChanges.map((pair, idx) => (
-              <div
-                key={idx}
-                className={
-                  codeChanges.length > 1
-                    ? 'rounded-xl border border-slate-200 bg-slate-50 p-4 space-y-3'
-                    : ''
-                }
-              >
-                {codeChanges.length > 1 && (
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="font-mono-tabular text-xs font-bold text-blue-700">
-                      수정 코드 #{idx + 1}
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => handleRemoveCodeBlock(idx)}
-                      className="inline-flex min-h-[36px] items-center gap-1 rounded-lg border border-slate-300 bg-white px-2.5 py-1 text-xs font-semibold text-red-700 hover:bg-red-50 transition-colors cursor-pointer"
-                    >
-                      <Trash2 className="h-3.5 w-3.5" />
-                      <span>삭제</span>
-                    </button>
-                  </div>
-                )}
-
-                <div className="grid gap-5 lg:grid-cols-2">
-                  <div>
-                    <label
-                      htmlFor={`beforeCode-${idx}`}
-                      className="block text-sm font-semibold text-slate-800"
-                    >
-                      수정 전 코드 (복사 · 붙여넣기)
-                    </label>
-                    <textarea
-                      id={`beforeCode-${idx}`}
-                      rows={8}
-                      maxLength={8000}
-                      spellCheck={false}
-                      value={pair.beforeCode}
-                      onChange={(e) => handleCodeChange(idx, 'beforeCode', e.target.value)}
-                      placeholder="수정하기 전 원래 코드를 여기에 복사해 붙여넣으세요."
-                      className="mt-2 w-full rounded-lg border border-slate-300 bg-slate-950 px-3.5 py-3 font-mono text-xs leading-relaxed text-slate-100 placeholder:text-slate-500 focus:border-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-600/30"
-                    />
-                    <div className="mt-1 text-right text-[11px] text-slate-400 font-mono-tabular">
-                      {pair.beforeCode.length} / 8000
-                    </div>
-                  </div>
-
-                  <div>
-                    <label
-                      htmlFor={`afterCode-${idx}`}
-                      className="block text-sm font-semibold text-slate-800"
-                    >
-                      수정 후 코드 (복사 · 붙여넣기)
-                    </label>
-                    <textarea
-                      id={`afterCode-${idx}`}
-                      rows={8}
-                      maxLength={8000}
-                      spellCheck={false}
-                      value={pair.afterCode}
-                      onChange={(e) => handleCodeChange(idx, 'afterCode', e.target.value)}
-                      placeholder="내가 직접 고친 뒤의 코드를 여기에 복사해 붙여넣으세요."
-                      className="mt-2 w-full rounded-lg border border-slate-300 bg-slate-950 px-3.5 py-3 font-mono text-xs leading-relaxed text-emerald-200 placeholder:text-slate-500 focus:border-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-600/30"
-                    />
-                    <div className="mt-1 text-right text-[11px] text-slate-400 font-mono-tabular">
-                      {pair.afterCode.length} / 8000
-                    </div>
-                  </div>
-                </div>
+              <label htmlFor="testedContent" className="block text-sm font-semibold text-slate-800">
+                ① 웹앱을 사용해 보고 테스트한 것
+              </label>
+              <textarea
+                id="testedContent"
+                rows={6}
+                maxLength={5000}
+                value={revisionDraft.testedContent}
+                onChange={(e) => {
+                  onUpdateRevisionField('testedContent', e.target.value);
+                  clearNotices();
+                }}
+                placeholder="예: 입력창에 빈 칸을 넣고 추가 버튼을 눌렀을 때 어떻게 되는지, 모바일 화면 크기에서 버튼이 잘 눌리는지 여러 번 직접 사용해 보며 테스트했습니다."
+                className="mt-2 w-full rounded-lg border border-slate-300 bg-white px-3.5 py-3 text-base text-slate-900 placeholder:text-slate-400 focus:border-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-600/20 sm:text-sm"
+              />
+              <div className="mt-1 text-right text-[11px] text-slate-400 font-mono-tabular">
+                {revisionDraft.testedContent.length} / 5000
               </div>
-            ))}
-          </div>
-
-          {codeChanges.length < 8 && (
-            <div className="flex justify-end pt-1">
-              <button
-                type="button"
-                onClick={handleAddCodeBlock}
-                className="inline-flex min-h-[42px] items-center gap-1.5 rounded-lg border border-slate-300 bg-slate-50 px-4 py-2 text-xs font-bold text-slate-800 hover:bg-slate-100 transition-colors cursor-pointer"
-              >
-                <Plus className="h-4 w-4 text-blue-700" />
-                <span>수정 코드 더 추가하기 ({codeChanges.length} / 8)</span>
-              </button>
             </div>
-          )}
+
+            <div>
+              <label htmlFor="fixedAfterTest" className="block text-sm font-semibold text-slate-800">
+                ② 테스트 후 수정한 것
+              </label>
+              <textarea
+                id="fixedAfterTest"
+                rows={6}
+                maxLength={5000}
+                value={revisionDraft.fixedAfterTest}
+                onChange={(e) => {
+                  onUpdateRevisionField('fixedAfterTest', e.target.value);
+                  clearNotices();
+                }}
+                placeholder="예: 빈 칸일 때는 등록되지 않고 안내 문구가 뜨도록 고쳤고, 제목 글자 크기를 키우고 버튼 색상을 파란색으로 수정했습니다."
+                className="mt-2 w-full rounded-lg border border-slate-300 bg-white px-3.5 py-3 text-base text-slate-900 placeholder:text-slate-400 focus:border-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-600/20 sm:text-sm"
+              />
+              <div className="mt-1 text-right text-[11px] text-slate-400 font-mono-tabular">
+                {revisionDraft.fixedAfterTest.length} / 5000
+              </div>
+            </div>
+          </div>
         </div>
 
         {/* 03. 수정 결과 바뀐 웹앱 화면 캡처 */}
@@ -616,7 +527,7 @@ export default function RevisionPage({
               수정 결과 바뀐 웹앱 화면 캡처
             </h2>
             <p className="mt-1 text-xs text-slate-600">
-              코드를 직접 수정한 뒤 실제로 화면이나 동작이 바뀐 웹앱 실행 화면을 캡처하여 올려 주세요.
+              테스트 후 수정 사항을 반영하여 실제로 화면이나 동작이 바뀐 웹앱 실행 화면을 캡처해 올려 주세요.
             </p>
           </div>
 
@@ -633,15 +544,15 @@ export default function RevisionPage({
           />
         </div>
 
-        {/* 04. 해당 코드를 수정한 이유와 적용 결과 */}
+        {/* 04. 수정한 이유와 적용 결과 */}
         <div className="rounded-xl border border-slate-300 bg-white p-4 sm:p-6 space-y-4">
           <div className="border-b border-slate-100 pb-3">
             <div className="text-xs font-medium text-slate-500">04. 수정 의도 및 결과 성찰</div>
             <label htmlFor="reasonAndResult" className="mt-0.5 block text-base font-bold text-slate-900">
-              해당 코드를 수정한 이유와 적용 결과
+              수정한 이유와 적용 결과
             </label>
             <p className="mt-1 text-xs text-slate-600">
-              왜 그 코드를 고쳤는지(오류, 불편한 화면 구성, 기능 보완 등)와 수정 후 웹앱에 어떤 변화가 나타났는지 구체적으로 서술하세요.
+              왜 그 부분을 수정했는지(오류, 불편한 화면 구성, 기능 보완 등)와 수정 후 웹앱에 어떤 변화가 나타났는지 서술하세요.
             </p>
           </div>
 

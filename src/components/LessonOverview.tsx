@@ -114,9 +114,9 @@ export default function LessonOverview({ onStartDiscovery }: LessonOverviewProps
             <li className="flex items-start gap-3.5 border-t border-slate-100 pt-4">
               <span className="font-mono-tabular text-sm font-extrabold text-blue-700 pt-0.5 shrink-0">03</span>
               <div>
-                <div className="text-sm font-bold text-slate-950">공유·확인 (갤러리 · 교사확인)</div>
+                <div className="text-sm font-bold text-slate-950">수정 보완(코드 다시 쓰기)</div>
                 <p className="mt-0.5 text-xs leading-relaxed text-slate-600 sm:text-sm">
-                  구현한 웹페이지를 갤러리에 등록해 교사 인증 후 공유하고, 교사확인 화면에서 피드백을 점검합니다.
+                  사용자 편의와 의도에 맞게 코드를 수정하여 반영합니다.
                 </p>
               </div>
             </li>

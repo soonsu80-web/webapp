@@ -14,12 +14,14 @@ export interface AppPlanSubmission {
   id: string;
   grade: string;
   classRoom: string;
+  studentNumber: string;
   studentName: string;
   discoverySource: DiscoverySource;
   problemSummary: string;
   urgencyReason: string;
   publicBenefitReason: string;
   inquiryQuestion: string;
+  appTitle: string;
   screenComposition: string;
   featuresToImplement: string;
   dataToStore: string;
@@ -38,12 +40,14 @@ export interface AppPlanSubmission {
 export interface AppPlanInput {
   grade: string;
   classRoom: string;
+  studentNumber: string;
   studentName: string;
   discoverySource: DiscoverySource;
   problemSummary: string;
   urgencyReason: string;
   publicBenefitReason: string;
   inquiryQuestion: string;
+  appTitle: string;
   screenComposition: string;
   featuresToImplement: string;
   dataToStore: string;
@@ -75,18 +79,14 @@ export interface GalleryInput {
 
 export type RevisionReviewStatus = '미확인' | '확인 완료' | '보완 필요';
 
-export interface CodeChangePair {
-  beforeCode: string;
-  afterCode: string;
-}
-
 export interface AppRevisionInput {
   grade: string;
   classRoom: string;
+  studentNumber: string;
   studentName: string;
   beforeImage: string;
-  beforeCode: string;
-  afterCode: string;
+  testedContent: string;
+  fixedAfterTest: string;
   afterImage: string;
   reasonAndResult: string;
 }
@@ -98,5 +98,6 @@ export interface AppRevisionSubmission extends AppRevisionInput {
   createdAt: string;
   updatedAt: string;
 }
+
 
 

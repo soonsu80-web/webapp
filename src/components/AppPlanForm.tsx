@@ -18,11 +18,13 @@ interface AppPlanFormProps {
 function formatAuthorSummary(form: AppPlanInput): string {
   const g = form.grade.trim();
   const c = form.classRoom.trim();
+  const num = form.studentNumber.trim();
   const n = form.studentName.trim();
-  if (!g && !c && !n) return '미입력';
+  if (!g && !c && !num && !n) return '미입력';
   const gradeText = g ? (g.endsWith('학년') ? g : `${g}학년`) : '';
   const classText = c ? (c.endsWith('반') ? c : `${c}반`) : '';
-  return [gradeText, classText, n].filter(Boolean).join(' ');
+  const numText = num ? (num.endsWith('번') ? num : `${num}번`) : '';
+  return [gradeText, classText, numText, n].filter(Boolean).join(' ');
 }
 
 export default function AppPlanForm({
@@ -46,6 +48,7 @@ export default function AppPlanForm({
   const discoveryComplete =
     form.grade.trim().length > 0 &&
     form.classRoom.trim().length > 0 &&
+    form.studentNumber.trim().length > 0 &&
     form.studentName.trim().length > 0 &&
     form.problemSummary.trim().length > 0 &&
     form.urgencyReason.trim().length > 0 &&
@@ -65,9 +68,14 @@ export default function AppPlanForm({
     setMissingDiscovery(false);
     setSuccessMessage(null);
 
-    if (!form.grade.trim() || !form.classRoom.trim() || !form.studentName.trim()) {
+    if (
+      !form.grade.trim() ||
+      !form.classRoom.trim() ||
+      !form.studentNumber.trim() ||
+      !form.studentName.trim()
+    ) {
       setMissingDiscovery(true);
-      setErrorMessage('‘문제탐색’ 페이지에서 작성자의 학년, 반, 성명을 먼저 입력해 주세요.');
+      setErrorMessage('‘문제탐색’ 페이지에서 작성자의 학년, 반, 번호, 성명을 먼저 입력해 주세요.');
       return;
     }
     if (
@@ -78,6 +86,10 @@ export default function AppPlanForm({
     ) {
       setMissingDiscovery(true);
       setErrorMessage('‘문제탐색’ 페이지의 실생활 문제, 시급성·공공의 이익, 탐구 질문을 모두 작성해 주세요.');
+      return;
+    }
+    if (!form.appTitle.trim()) {
+      setErrorMessage('웹앱 제목을 입력해 주세요.');
       return;
     }
     if (!form.screenComposition.trim()) {
@@ -220,6 +232,29 @@ export default function AppPlanForm({
       </div>
 
       <form onSubmit={handleSubmit} className="mt-6 space-y-6 sm:space-y-8">
+        {/* 웹앱 제목 */}
+        <div className="rounded-xl border border-slate-300 bg-white p-4 sm:p-6 space-y-3">
+          <div className="border-b border-slate-100 pb-3">
+            <div className="text-xs font-medium text-slate-500">웹앱 기본 정보</div>
+            <label htmlFor="appTitle" className="mt-0.5 block text-base font-bold text-slate-900">
+              웹앱 제목
+            </label>
+            <p className="mt-1 text-xs text-slate-600">
+              내가 만들 웹앱의 특징과 목적이 잘 드러나는 제목을 정해 입력해 주세요.
+            </p>
+          </div>
+
+          <input
+            id="appTitle"
+            type="text"
+            maxLength={100}
+            value={form.appTitle}
+            onChange={(e) => handleFieldChange('appTitle', e.target.value)}
+            placeholder="예: 우리 반 분리수거 도우미, 급식 메뉴 알리미, 시험 일정 플래너"
+            className="min-h-[44px] w-full rounded-lg border border-slate-300 bg-white px-3.5 py-2.5 text-base text-slate-900 placeholder:text-slate-400 focus:border-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-600/20 sm:text-sm"
+          />
+        </div>
+
         {/* 화면 구성 */}
         <div className="rounded-xl border border-slate-300 bg-white p-4 sm:p-6 space-y-4">
           <div className="border-b border-slate-100 pb-3">

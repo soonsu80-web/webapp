@@ -8,8 +8,8 @@ import TeacherReview from './components/TeacherReview';
 import type {
   AppPlanInput,
   AppPlanSubmission,
+  AppRevisionInput,
   AppRevisionSubmission,
-  CodeChangePair,
   GalleryItem,
 } from './types/lesson';
 import {
@@ -35,22 +35,22 @@ const MENU_ITEMS: { key: PageKey; label: string }[] = [
 const SESSION_FORM_KEY = 'vibe_coding_p1_form_input';
 const SESSION_REVISION_KEY = 'vibe_coding_p3_revision_input';
 
-export interface RevisionDraftState {
-  beforeImage: string;
-  codeChanges: CodeChangePair[];
-  afterImage: string;
-  reasonAndResult: string;
-}
+export type RevisionDraftState = Omit<
+  AppRevisionInput,
+  'grade' | 'classRoom' | 'studentNumber' | 'studentName'
+>;
 
 const EMPTY_INPUT: AppPlanInput = {
   grade: '',
   classRoom: '',
+  studentNumber: '',
   studentName: '',
   discoverySource: '수업 중 학교문제 토론',
   problemSummary: '',
   urgencyReason: '',
   publicBenefitReason: '',
   inquiryQuestion: '',
+  appTitle: '',
   screenComposition: '',
   featuresToImplement: '',
   dataToStore: '',
@@ -62,7 +62,8 @@ const EMPTY_INPUT: AppPlanInput = {
 
 const EMPTY_REVISION_DRAFT: RevisionDraftState = {
   beforeImage: '',
-  codeChanges: [{ beforeCode: '', afterCode: '' }],
+  testedContent: '',
+  fixedAfterTest: '',
   afterImage: '',
   reasonAndResult: '',
 };
@@ -86,21 +87,20 @@ function loadSessionRevision(): RevisionDraftState {
       beforeCode?: string;
       afterCode?: string;
     };
-    const codeChanges =
-      Array.isArray(parsed.codeChanges) && parsed.codeChanges.length > 0
-        ? parsed.codeChanges.map((pair) => ({
-            beforeCode: typeof pair?.beforeCode === 'string' ? pair.beforeCode : '',
-            afterCode: typeof pair?.afterCode === 'string' ? pair.afterCode : '',
-          }))
-        : [
-            {
-              beforeCode: typeof parsed.beforeCode === 'string' ? parsed.beforeCode : '',
-              afterCode: typeof parsed.afterCode === 'string' ? parsed.afterCode : '',
-            },
-          ];
     return {
       beforeImage: typeof parsed.beforeImage === 'string' ? parsed.beforeImage : '',
-      codeChanges,
+      testedContent:
+        typeof parsed.testedContent === 'string'
+          ? parsed.testedContent
+          : typeof parsed.beforeCode === 'string'
+            ? parsed.beforeCode
+            : '',
+      fixedAfterTest:
+        typeof parsed.fixedAfterTest === 'string'
+          ? parsed.fixedAfterTest
+          : typeof parsed.afterCode === 'string'
+            ? parsed.afterCode
+            : '',
       afterImage: typeof parsed.afterImage === 'string' ? parsed.afterImage : '',
       reasonAndResult: typeof parsed.reasonAndResult === 'string' ? parsed.reasonAndResult : '',
     };
@@ -360,8 +360,10 @@ export default function App() {
             authorForm={{
               grade: formInput.grade,
               classRoom: formInput.classRoom,
+              studentNumber: formInput.studentNumber,
               studentName: formInput.studentName,
               problemSummary: formInput.problemSummary,
+              appTitle: formInput.appTitle,
             }}
             onGoToDiscovery={() => navigateToPage('discovery')}
             revisionDraft={revisionDraft}

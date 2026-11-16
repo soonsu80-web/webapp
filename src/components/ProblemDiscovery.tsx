@@ -24,6 +24,7 @@ export default function ProblemDiscovery({
   const isDiscoveryReady =
     form.grade.trim().length > 0 &&
     form.classRoom.trim().length > 0 &&
+    form.studentNumber.trim().length > 0 &&
     form.studentName.trim().length > 0 &&
     form.problemSummary.trim().length > 0 &&
     form.urgencyReason.trim().length > 0 &&
@@ -53,7 +54,7 @@ export default function ProblemDiscovery({
             <span className="text-sm font-semibold text-slate-900">작성자 정보 (개인)</span>
           </div>
 
-          <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-3">
+          <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-4">
             <div>
               <label htmlFor="authorGrade" className="block text-xs font-medium text-slate-700">
                 학년
@@ -82,6 +83,22 @@ export default function ProblemDiscovery({
                 value={form.classRoom}
                 onChange={(e) => onUpdateField('classRoom', e.target.value)}
                 placeholder="예: 3"
+                className="mt-1.5 min-h-[44px] w-full rounded-lg border border-slate-300 bg-white px-3.5 py-2.5 text-base text-slate-900 placeholder:text-slate-400 focus:border-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-600/20 sm:text-sm"
+              />
+            </div>
+
+            <div>
+              <label htmlFor="authorNumber" className="block text-xs font-medium text-slate-700">
+                번호
+              </label>
+              <input
+                id="authorNumber"
+                type="text"
+                inputMode="numeric"
+                maxLength={20}
+                value={form.studentNumber}
+                onChange={(e) => onUpdateField('studentNumber', e.target.value)}
+                placeholder="예: 5"
                 className="mt-1.5 min-h-[44px] w-full rounded-lg border border-slate-300 bg-white px-3.5 py-2.5 text-base text-slate-900 placeholder:text-slate-400 focus:border-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-600/20 sm:text-sm"
               />
             </div>

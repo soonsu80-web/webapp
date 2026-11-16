@@ -23,12 +23,14 @@ interface AppPlanRow {
   id: string;
   grade: string;
   class_room: string;
+  student_number?: string | null;
   student_name: string;
   discovery_source: string;
   problem_summary: string;
   urgency_reason: string;
   public_benefit_reason: string;
   inquiry_question: string;
+  app_title?: string | null;
   screen_composition: string;
   features_to_implement: string;
   data_to_store: string;
@@ -58,10 +60,13 @@ interface AppRevisionRow {
   id: string;
   grade: string;
   class_room: string;
+  student_number?: string | null;
   student_name: string;
   before_image: string;
   before_code: string;
   after_code: string;
+  tested_content?: string | null;
+  fixed_after_test?: string | null;
   after_image: string;
   reason_and_result: string;
   review_status: string;
@@ -169,12 +174,14 @@ function mapRowToPlan(row: AppPlanRow) {
     id: row.id,
     grade: row.grade,
     classRoom: row.class_room,
+    studentNumber: row.student_number ?? '',
     studentName: row.student_name,
     discoverySource: row.discovery_source,
     problemSummary: row.problem_summary,
     urgencyReason: row.urgency_reason,
     publicBenefitReason: row.public_benefit_reason,
     inquiryQuestion: row.inquiry_question,
+    appTitle: row.app_title ?? '',
     screenComposition: row.screen_composition,
     featuresToImplement: row.features_to_implement,
     dataToStore: row.data_to_store,
@@ -209,10 +216,11 @@ function mapRowToRevision(row: AppRevisionRow) {
     id: row.id,
     grade: row.grade,
     classRoom: row.class_room,
+    studentNumber: row.student_number ?? '',
     studentName: row.student_name,
     beforeImage: row.before_image,
-    beforeCode: row.before_code,
-    afterCode: row.after_code,
+    testedContent: row.tested_content || row.before_code || '',
+    fixedAfterTest: row.fixed_after_test || row.after_code || '',
     afterImage: row.after_image,
     reasonAndResult: row.reason_and_result,
     reviewStatus: row.review_status,
@@ -249,12 +257,14 @@ function validatePlanBody(body: unknown) {
 
   const grade = sanitizeText(raw.grade, 20);
   const classRoom = sanitizeText(raw.classRoom, 20);
+  const studentNumber = sanitizeText(raw.studentNumber, 20);
   const studentName = sanitizeText(raw.studentName, 40);
   const discoverySource = sanitizeText(raw.discoverySource, 60);
   const problemSummary = sanitizeText(raw.problemSummary, 1500);
   const urgencyReason = sanitizeText(raw.urgencyReason, 1000);
   const publicBenefitReason = sanitizeText(raw.publicBenefitReason, 1000);
   const inquiryQuestion = sanitizeText(raw.inquiryQuestion, 1000);
+  const appTitle = sanitizeText(raw.appTitle, 100);
   const screenComposition = sanitizeText(raw.screenComposition, 1500);
   const featuresToImplement = sanitizeText(raw.featuresToImplement, 1500);
   const dataToStore = sanitizeText(raw.dataToStore, 1500);
@@ -264,14 +274,17 @@ function validatePlanBody(body: unknown) {
   const finalPrompt = sanitizeText(raw.finalPrompt, 6000);
   const safetyChecked = raw.safetyChecked === true;
 
-  if (!grade || !classRoom || !studentName) {
-    return { ok: false as const, error: '작성자의 학년, 반, 성명을 모두 입력해 주세요.' };
+  if (!grade || !classRoom || !studentNumber || !studentName) {
+    return { ok: false as const, error: '작성자의 학년, 반, 번호, 성명을 모두 입력해 주세요.' };
   }
   if (!VALID_SOURCES.has(discoverySource)) {
     return { ok: false as const, error: '실생활 문제 탐색 경로를 올바르게 선택해 주세요.' };
   }
   if (!problemSummary || !urgencyReason || !publicBenefitReason) {
     return { ok: false as const, error: '실생활 문제와 시급성·공공의 이익 선정 이유를 모두 입력해 주세요.' };
+  }
+  if (!appTitle) {
+    return { ok: false as const, error: '웹앱 제목을 입력해 주세요.' };
   }
   if (!inquiryQuestion || !screenComposition) {
     return { ok: false as const, error: '탐구 질문과 웹앱 화면 구성을 모두 입력해 주세요.' };
@@ -294,12 +307,14 @@ function validatePlanBody(body: unknown) {
     data: {
       grade,
       classRoom,
+      studentNumber,
       studentName,
       discoverySource,
       problemSummary,
       urgencyReason,
       publicBenefitReason,
       inquiryQuestion,
+      appTitle,
       screenComposition,
       featuresToImplement,
       dataToStore,
@@ -371,6 +386,8 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
       await env.DB.prepare('SELECT 1 FROM gallery_items LIMIT 1').first();
       await env.DB.prepare('SELECT 1 FROM app_plan_prompts LIMIT 1').first();
       await env.DB.prepare('SELECT 1 FROM app_revisions LIMIT 1').first();
+      await env.DB.prepare('SELECT 1 FROM app_plan_meta LIMIT 1').first();
+      await env.DB.prepare('SELECT 1 FROM app_revision_details LIMIT 1').first();
       return jsonResponse({ ok: true, dbReady: true });
     } catch {
       return jsonResponse(
@@ -656,6 +673,12 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
         .bind(id, d.promptDraft, d.finalPrompt, nowIso)
         .run();
 
+      await env.DB.prepare(
+        'INSERT INTO app_plan_meta (plan_id, student_number, app_title, updated_at) VALUES (?, ?, ?, ?)',
+      )
+        .bind(id, d.studentNumber, d.appTitle, nowIso)
+        .run();
+
       return jsonResponse(
         {
           plan: {
@@ -686,7 +709,7 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
 
     try {
       const { results } = await env.DB.prepare(
-        "SELECT a.id, a.grade, a.class_room, a.student_name, a.discovery_source, a.problem_summary, a.urgency_reason, a.public_benefit_reason, a.inquiry_question, a.screen_composition, a.features_to_implement, a.data_to_store, a.constraints, a.programming_principles, a.safety_checked, a.rubric_level, a.teacher_note, COALESCE(p.prompt_draft, '') AS prompt_draft, COALESCE(p.final_prompt, '') AS final_prompt, a.created_at, a.updated_at FROM app_plans a LEFT JOIN app_plan_prompts p ON p.plan_id = a.id ORDER BY a.updated_at DESC LIMIT 500",
+        "SELECT a.id, a.grade, a.class_room, COALESCE(m.student_number, '') AS student_number, a.student_name, a.discovery_source, a.problem_summary, a.urgency_reason, a.public_benefit_reason, a.inquiry_question, COALESCE(m.app_title, '') AS app_title, a.screen_composition, a.features_to_implement, a.data_to_store, a.constraints, a.programming_principles, a.safety_checked, a.rubric_level, a.teacher_note, COALESCE(p.prompt_draft, '') AS prompt_draft, COALESCE(p.final_prompt, '') AS final_prompt, a.created_at, a.updated_at FROM app_plans a LEFT JOIN app_plan_prompts p ON p.plan_id = a.id LEFT JOIN app_plan_meta m ON m.plan_id = a.id ORDER BY a.updated_at DESC LIMIT 500",
       ).all<AppPlanRow>();
 
       return jsonResponse({ plans: results.map(mapRowToPlan) });
@@ -730,7 +753,7 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
       }
 
       const row = await env.DB.prepare(
-        "SELECT a.id, a.grade, a.class_room, a.student_name, a.discovery_source, a.problem_summary, a.urgency_reason, a.public_benefit_reason, a.inquiry_question, a.screen_composition, a.features_to_implement, a.data_to_store, a.constraints, a.programming_principles, a.safety_checked, a.rubric_level, a.teacher_note, COALESCE(p.prompt_draft, '') AS prompt_draft, COALESCE(p.final_prompt, '') AS final_prompt, a.created_at, a.updated_at FROM app_plans a LEFT JOIN app_plan_prompts p ON p.plan_id = a.id WHERE a.id = ?",
+        "SELECT a.id, a.grade, a.class_room, COALESCE(m.student_number, '') AS student_number, a.student_name, a.discovery_source, a.problem_summary, a.urgency_reason, a.public_benefit_reason, a.inquiry_question, COALESCE(m.app_title, '') AS app_title, a.screen_composition, a.features_to_implement, a.data_to_store, a.constraints, a.programming_principles, a.safety_checked, a.rubric_level, a.teacher_note, COALESCE(p.prompt_draft, '') AS prompt_draft, COALESCE(p.final_prompt, '') AS final_prompt, a.created_at, a.updated_at FROM app_plans a LEFT JOIN app_plan_prompts p ON p.plan_id = a.id LEFT JOIN app_plan_meta m ON m.plan_id = a.id WHERE a.id = ?",
       )
         .bind(planId)
         .first<AppPlanRow>();
@@ -754,6 +777,7 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
 
     const planId = deleteMatch[1];
     try {
+      await env.DB.prepare('DELETE FROM app_plan_meta WHERE plan_id = ?').bind(planId).run();
       await env.DB.prepare('DELETE FROM app_plan_prompts WHERE plan_id = ?').bind(planId).run();
       const res = await env.DB.prepare('DELETE FROM app_plans WHERE id = ?').bind(planId).run();
       if (!res.meta?.changes) {
@@ -780,15 +804,16 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
 
     const grade = sanitizeText(raw.grade, 20);
     const classRoom = sanitizeText(raw.classRoom, 20);
+    const studentNumber = sanitizeText(raw.studentNumber, 20);
     const studentName = sanitizeText(raw.studentName, 40);
     const beforeImage = typeof raw.beforeImage === 'string' ? raw.beforeImage.trim() : '';
-    const beforeCode = sanitizeCodeText(raw.beforeCode, 20000);
-    const afterCode = sanitizeCodeText(raw.afterCode, 20000);
+    const testedContent = sanitizeCodeText(raw.testedContent ?? raw.beforeCode, 5000).trim();
+    const fixedAfterTest = sanitizeCodeText(raw.fixedAfterTest ?? raw.afterCode, 5000).trim();
     const afterImage = typeof raw.afterImage === 'string' ? raw.afterImage.trim() : '';
     const reasonAndResult = sanitizeText(raw.reasonAndResult, 3000);
 
-    if (!grade || !classRoom || !studentName) {
-      return jsonResponse({ error: '작성자의 학년, 반, 성명을 모두 입력해 주세요.' }, 400);
+    if (!grade || !classRoom || !studentNumber || !studentName) {
+      return jsonResponse({ error: '작성자의 학년, 반, 번호, 성명을 모두 입력해 주세요.' }, 400);
     }
 
     const imagePattern = /^data:image\/(png|jpeg|jpg|webp|gif);base64,[A-Za-z0-9+/=]+$/;
@@ -801,11 +826,11 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
     if (beforeImage.length > 480000 || afterImage.length > 480000) {
       return jsonResponse({ error: '캡처 이미지 용량이 너무 큽니다. 더 작은 이미지를 선택해 주세요.' }, 400);
     }
-    if (!beforeCode.trim() || !afterCode.trim()) {
-      return jsonResponse({ error: '수정 전 코드와 수정 후 코드를 모두 입력해 주세요.' }, 400);
+    if (!testedContent || !fixedAfterTest) {
+      return jsonResponse({ error: '웹앱을 테스트한 내용과 테스트 후 수정한 내용을 모두 입력해 주세요.' }, 400);
     }
     if (!reasonAndResult) {
-      return jsonResponse({ error: '해당 코드를 수정한 이유와 적용 결과를 서술해 주세요.' }, 400);
+      return jsonResponse({ error: '수정한 이유와 적용 결과를 서술해 주세요.' }, 400);
     }
 
     const id = crypto.randomUUID();
@@ -821,8 +846,8 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
           classRoom,
           studentName,
           beforeImage,
-          beforeCode,
-          afterCode,
+          testedContent,
+          fixedAfterTest,
           afterImage,
           reasonAndResult,
           '미확인',
@@ -832,16 +857,23 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
         )
         .run();
 
+      await env.DB.prepare(
+        'INSERT INTO app_revision_details (revision_id, student_number, tested_content, fixed_after_test, updated_at) VALUES (?, ?, ?, ?, ?)',
+      )
+        .bind(id, studentNumber, testedContent, fixedAfterTest, nowIso)
+        .run();
+
       return jsonResponse(
         {
           revision: {
             id,
             grade,
             classRoom,
+            studentNumber,
             studentName,
             beforeImage,
-            beforeCode,
-            afterCode,
+            testedContent,
+            fixedAfterTest,
             afterImage,
             reasonAndResult,
             reviewStatus: '미확인',
@@ -868,7 +900,7 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
 
     try {
       const { results } = await env.DB.prepare(
-        'SELECT id, grade, class_room, student_name, before_image, before_code, after_code, after_image, reason_and_result, review_status, teacher_note, created_at, updated_at FROM app_revisions ORDER BY updated_at DESC LIMIT 500',
+        "SELECT r.id, r.grade, r.class_room, COALESCE(d.student_number, '') AS student_number, r.student_name, r.before_image, r.before_code, r.after_code, COALESCE(d.tested_content, '') AS tested_content, COALESCE(d.fixed_after_test, '') AS fixed_after_test, r.after_image, r.reason_and_result, r.review_status, r.teacher_note, r.created_at, r.updated_at FROM app_revisions r LEFT JOIN app_revision_details d ON d.revision_id = r.id ORDER BY r.updated_at DESC LIMIT 500",
       ).all<AppRevisionRow>();
 
       return jsonResponse({ revisions: results.map(mapRowToRevision) });
@@ -912,7 +944,7 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
       }
 
       const row = await env.DB.prepare(
-        'SELECT id, grade, class_room, student_name, before_image, before_code, after_code, after_image, reason_and_result, review_status, teacher_note, created_at, updated_at FROM app_revisions WHERE id = ?',
+        "SELECT r.id, r.grade, r.class_room, COALESCE(d.student_number, '') AS student_number, r.student_name, r.before_image, r.before_code, r.after_code, COALESCE(d.tested_content, '') AS tested_content, COALESCE(d.fixed_after_test, '') AS fixed_after_test, r.after_image, r.reason_and_result, r.review_status, r.teacher_note, r.created_at, r.updated_at FROM app_revisions r LEFT JOIN app_revision_details d ON d.revision_id = r.id WHERE r.id = ?",
       )
         .bind(revisionId)
         .first<AppRevisionRow>();
@@ -936,6 +968,7 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
 
     const revisionId = revisionDeleteMatch[1];
     try {
+      await env.DB.prepare('DELETE FROM app_revision_details WHERE revision_id = ?').bind(revisionId).run();
       const res = await env.DB.prepare('DELETE FROM app_revisions WHERE id = ?').bind(revisionId).run();
       if (!res.meta?.changes) {
         return jsonResponse({ error: '삭제할 수정하기 기록을 찾을 수 없습니다.' }, 404);
