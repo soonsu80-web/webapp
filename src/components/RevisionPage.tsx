@@ -1,12 +1,20 @@
 import { useState, type ChangeEvent, type ClipboardEvent, type DragEvent, type FormEvent } from 'react';
 import { ArrowLeft, CheckCircle2, Clock, ImagePlus, Plus, RotateCcw, Send, Trash2, Upload } from 'lucide-react';
-import type { AppPlanInput, AppRevisionSubmission } from '../types/lesson';
+import type {
+  AppPlanInput,
+  AppPlanSubmission,
+  AppRevisionSubmission,
+  EditingReportSession,
+} from '../types/lesson';
 import type { RevisionDraftState } from '../App';
-import { submitRevisionToApi, type BackendMode } from '../services/planApi';
+import { submitRevisionToApi, updateFullReportInApi, type BackendMode } from '../services/planApi';
+import { buildPromptDraft } from '../utils/promptDraft';
 
 interface RevisionPageProps {
   authorForm: Pick<AppPlanInput, 'grade' | 'classRoom' | 'studentNumber' | 'studentName' | 'problemSummary' | 'appTitle'>;
+  fullPlanForm: AppPlanInput;
   onGoToDiscovery: () => void;
+  onGoToPlan: () => void;
   revisionDraft: RevisionDraftState;
   onUpdateRevisionField: <K extends keyof RevisionDraftState>(
     key: K,
@@ -17,6 +25,8 @@ interface RevisionPageProps {
   lastSavedRevision: AppRevisionSubmission | null;
   onRevisionSaved: (revision: AppRevisionSubmission) => void;
   onBackendModeChange: (mode: BackendMode) => void;
+  editingReport: EditingReportSession | null;
+  onEditCompleted: (result: { plan: AppPlanSubmission | null; revision: AppRevisionSubmission | null }) => void;
 }
 
 function formatAuthorSummary(
@@ -243,7 +253,9 @@ function ScreenshotUploadBox({
 
 export default function RevisionPage({
   authorForm,
+  fullPlanForm,
   onGoToDiscovery,
+  onGoToPlan,
   revisionDraft,
   onUpdateRevisionField,
   onResetRevisionDraft,
@@ -251,6 +263,8 @@ export default function RevisionPage({
   lastSavedRevision,
   onRevisionSaved,
   onBackendModeChange,
+  editingReport,
+  onEditCompleted,
 }: RevisionPageProps) {
   const [submitting, setSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -303,6 +317,10 @@ export default function RevisionPage({
       setErrorMessage('수정한 이유와 적용 결과를 서술해 주세요.');
       return;
     }
+    if (!revisionDraft.safetyChecked) {
+      setErrorMessage('디지털 안전 약속 확인 체크박스를 선택해 주세요.');
+      return;
+    }
 
     const testedContent = cleanTested
       .map((line, idx) => `${idx + 1}. ${line.replace(/^\d+\.\s*/, '')}`)
@@ -313,7 +331,7 @@ export default function RevisionPage({
 
     setSubmitting(true);
     try {
-      const result = await submitRevisionToApi({
+      const revisionPayload = {
         grade: authorForm.grade,
         classRoom: authorForm.classRoom,
         studentNumber: authorForm.studentNumber,
@@ -323,22 +341,61 @@ export default function RevisionPage({
         fixedAfterTest,
         afterImage: revisionDraft.afterImage,
         reasonAndResult: revisionDraft.reasonAndResult,
-      });
+        safetyChecked: revisionDraft.safetyChecked,
+      };
 
-      if (result.connected && result.ok && result.revision) {
-        onBackendModeChange('ready');
-        onRevisionSaved(result.revision);
-        setSuccessMessage(
-          '3차시 수정하기 기록이 D1 저장소에 안전하게 제출되었습니다. 비공개 응답 보호 원칙에 따라 제출 내역은 교사만 열람할 수 있습니다.',
-        );
-      } else if (!result.connected) {
-        onBackendModeChange('unavailable');
-        setErrorMessage(
-          result.error ||
-            '저장 준비 중: 현재 환경에는 Cloudflare Worker(/api/revisions)가 연결되지 않아 저장되지 않았습니다.',
-        );
+      if (editingReport?.active) {
+        const promptDraft = buildPromptDraft(fullPlanForm);
+        const effectiveFinalPrompt = fullPlanForm.finalPrompt.trim() || promptDraft;
+        const result = await updateFullReportInApi({
+          planId: editingReport.planId,
+          revisionId: editingReport.revisionId,
+          lookup: editingReport.lookup,
+          plan: {
+            ...fullPlanForm,
+            finalPrompt: effectiveFinalPrompt,
+            promptDraft,
+            safetyChecked: revisionDraft.safetyChecked,
+          },
+          revision: revisionPayload,
+        });
+
+        if (result.connected && result.ok) {
+          onBackendModeChange('ready');
+          onEditCompleted({
+            plan: result.plan ?? null,
+            revision: result.revision ?? null,
+          });
+          setSuccessMessage(
+            '보고서 수정이 완료되어 D1 저장소에 반영되었습니다. 이제 다른 메뉴로 자유롭게 이동할 수 있습니다.',
+          );
+        } else if (!result.connected) {
+          onBackendModeChange('unavailable');
+          setErrorMessage(
+            result.error ||
+              '저장 준비 중: 현재 환경에는 Cloudflare Worker(/api/report)가 연결되지 않아 수정 내용이 저장되지 않았습니다.',
+          );
+        } else {
+          setErrorMessage(result.error || '보고서 수정 저장에 실패했습니다. 잠시 후 다시 시도해 주세요.');
+        }
       } else {
-        setErrorMessage(result.error || '저장에 실패했습니다. 잠시 후 다시 시도해 주세요.');
+        const result = await submitRevisionToApi(revisionPayload);
+
+        if (result.connected && result.ok && result.revision) {
+          onBackendModeChange('ready');
+          onRevisionSaved(result.revision);
+          setSuccessMessage(
+            '3차시 수정하기 기록이 D1 저장소에 안전하게 제출되었습니다. 비공개 응답 보호 원칙에 따라 제출 내역은 교사만 열람할 수 있습니다.',
+          );
+        } else if (!result.connected) {
+          onBackendModeChange('unavailable');
+          setErrorMessage(
+            result.error ||
+              '저장 준비 중: 현재 환경에는 Cloudflare Worker(/api/revisions)가 연결되지 않아 저장되지 않았습니다.',
+          );
+        } else {
+          setErrorMessage(result.error || '저장에 실패했습니다. 잠시 후 다시 시도해 주세요.');
+        }
       }
     } finally {
       setSubmitting(false);
@@ -377,6 +434,7 @@ export default function RevisionPage({
     revisionDraft.fixedItems.some((s) => s.trim().length > 0) ||
     Boolean(revisionDraft.afterImage) ||
     Boolean(revisionDraft.reasonAndResult) ||
+    revisionDraft.safetyChecked ||
     Boolean(lastSavedRevision);
 
   return (
@@ -457,11 +515,11 @@ export default function RevisionPage({
 
           <button
             type="button"
-            onClick={onGoToDiscovery}
+            onClick={onGoToPlan}
             className="inline-flex min-h-[44px] items-center justify-center gap-1.5 rounded-lg border border-slate-300 bg-slate-50 px-4 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-100 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
           >
             <ArrowLeft className="h-4 w-4" />
-            <span>{authorComplete ? '문제탐색 내용 확인·수정' : '문제탐색 작성하러 가기'}</span>
+            <span>{authorComplete ? '앱기획서 내용 확인·수정' : '앱기획서 작성하러 가기'}</span>
           </button>
         </div>
       </div>
@@ -665,12 +723,27 @@ export default function RevisionPage({
           </div>
         </div>
 
-        {/* 제출 영역 */}
+        {/* 디지털 안전 약속 확인 및 보고서 제출 영역 */}
         <div className="rounded-xl border border-slate-300 bg-white p-4 sm:p-6">
+          <label className="flex min-h-[44px] items-start gap-3 py-1 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={revisionDraft.safetyChecked}
+              onChange={(e) => {
+                onUpdateRevisionField('safetyChecked', e.target.checked);
+                clearNotices();
+              }}
+              className="mt-0.5 h-5 w-5 shrink-0 rounded border-slate-300 text-blue-700 focus:ring-blue-600"
+            />
+            <span className="text-sm leading-relaxed text-slate-700">
+              <strong className="font-semibold text-slate-900">디지털 안전 약속 확인</strong> — 공공의 이익에 반하지 않는 주제로 작성하였습니다.
+            </span>
+          </label>
+
           {errorMessage && (
             <div
               role="alert"
-              className="mb-4 flex flex-col gap-2 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800 sm:flex-row sm:items-center sm:justify-between"
+              className="mt-4 flex flex-col gap-2 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800 sm:flex-row sm:items-center sm:justify-between"
             >
               <span>{errorMessage}</span>
               {missingAuthor && (
@@ -688,14 +761,14 @@ export default function RevisionPage({
           {successMessage && (
             <div
               role="status"
-              className="mb-4 flex items-start gap-2.5 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm leading-relaxed text-emerald-900"
+              className="mt-4 flex items-start gap-2.5 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm leading-relaxed text-emerald-900"
             >
               <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-700" />
               <span>{successMessage}</span>
             </div>
           )}
 
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="mt-6 flex flex-col gap-3 border-t border-slate-100 pt-5 sm:flex-row sm:items-center sm:justify-between">
             <div className="text-xs text-slate-500 font-mono-tabular">
               {lastSavedRevision
                 ? `최근 제출 완료: ${new Date(lastSavedRevision.updatedAt).toLocaleString('ko-KR')}`
@@ -710,7 +783,7 @@ export default function RevisionPage({
               className="inline-flex min-h-[48px] w-full items-center justify-center gap-2 rounded-lg bg-blue-700 px-5 py-3 text-sm font-bold text-white hover:bg-blue-800 disabled:opacity-60 transition-colors whitespace-nowrap shrink-0 cursor-pointer sm:w-auto sm:min-h-[46px]"
             >
               <Send className="h-4 w-4" />
-              <span>{submitting ? '저장 요청 중...' : '3차시 수정 기록 제출하기'}</span>
+              <span>{submitting ? '저장 요청 중...' : '보고서 제출하기'}</span>
             </button>
           </div>
         </div>

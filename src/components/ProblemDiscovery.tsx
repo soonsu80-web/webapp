@@ -237,7 +237,7 @@ export default function ProblemDiscovery({
             onClick={onNextStep}
             className="inline-flex min-h-[46px] w-full items-center justify-center gap-2 rounded-lg bg-blue-700 px-5 py-2.5 text-sm font-bold text-white hover:bg-blue-800 transition-colors whitespace-nowrap shrink-0 cursor-pointer sm:w-auto"
           >
-            <span>다음: 앱 기획서 작성</span>
+            <span>2단계: 앱 기획서 작성</span>
             <ArrowRight className="h-4 w-4" />
           </button>
         </div>

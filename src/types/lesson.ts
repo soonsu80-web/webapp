@@ -89,6 +89,7 @@ export interface AppRevisionInput {
   fixedAfterTest: string;
   afterImage: string;
   reasonAndResult: string;
+  safetyChecked?: boolean;
 }
 
 export interface AppRevisionSubmission extends AppRevisionInput {
@@ -99,5 +100,16 @@ export interface AppRevisionSubmission extends AppRevisionInput {
   updatedAt: string;
 }
 
+export interface StudentLookupIdentity {
+  grade: string;
+  classRoom: string;
+  studentNumber: string;
+  studentName: string;
+}
 
-
+export interface EditingReportSession {
+  active: boolean;
+  planId: string | null;
+  revisionId: string | null;
+  lookup: StudentLookupIdentity;
+}

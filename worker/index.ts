@@ -112,6 +112,77 @@ function sanitizeCodeText(value: unknown, maxLength: number): string {
   return value.replace(/\r\n/g, '\n').slice(0, maxLength);
 }
 
+function normalizeStudentUnit(raw: string, suffix: string): string {
+  return raw.trim().replace(new RegExp(`${suffix}$`), '').trim().toLowerCase();
+}
+
+function matchesStudentIdentity(
+  row: { grade: string; class_room: string; student_number?: string | null; student_name: string },
+  input: { grade: string; classRoom: string; studentNumber: string; studentName: string },
+): boolean {
+  const sameGrade = normalizeStudentUnit(row.grade, '학년') === normalizeStudentUnit(input.grade, '학년');
+  const sameClass = normalizeStudentUnit(row.class_room, '반') === normalizeStudentUnit(input.classRoom, '반');
+  const sameName = row.student_name.trim() === input.studentName.trim();
+  if (!sameGrade || !sameClass || !sameName) return false;
+  const rowNum = normalizeStudentUnit(row.student_number ?? '', '번');
+  const inputNum = normalizeStudentUnit(input.studentNumber, '번');
+  if (rowNum && inputNum) {
+    return rowNum === inputNum;
+  }
+  return rowNum === '' && inputNum !== '';
+}
+
+function validateRevisionPayload(raw: Record<string, unknown>) {
+  const grade = sanitizeText(raw.grade, 20);
+  const classRoom = sanitizeText(raw.classRoom, 20);
+  const studentNumber = sanitizeText(raw.studentNumber, 20);
+  const studentName = sanitizeText(raw.studentName, 40);
+  const beforeImage = typeof raw.beforeImage === 'string' ? raw.beforeImage.trim() : '';
+  const testedContent = sanitizeCodeText(raw.testedContent ?? raw.beforeCode, 5000).trim();
+  const fixedAfterTest = sanitizeCodeText(raw.fixedAfterTest ?? raw.afterCode, 5000).trim();
+  const afterImage = typeof raw.afterImage === 'string' ? raw.afterImage.trim() : '';
+  const reasonAndResult = sanitizeText(raw.reasonAndResult, 3000);
+  const safetyChecked = raw.safetyChecked === true;
+
+  if (!grade || !classRoom || !studentNumber || !studentName) {
+    return { ok: false as const, error: '작성자의 학년, 반, 번호, 성명을 모두 입력해 주세요.' };
+  }
+  const imagePattern = /^data:image\/(png|jpeg|jpg|webp|gif);base64,[A-Za-z0-9+/=]+$/;
+  if (!beforeImage || !imagePattern.test(beforeImage)) {
+    return { ok: false as const, error: '첫 프롬프트 결과 완성된 웹앱 화면 캡처 이미지를 올려 주세요.' };
+  }
+  if (!afterImage || !imagePattern.test(afterImage)) {
+    return { ok: false as const, error: '수정 결과 바뀐 웹앱 화면 캡처 이미지를 올려 주세요.' };
+  }
+  if (beforeImage.length > 480000 || afterImage.length > 480000) {
+    return { ok: false as const, error: '캡처 이미지 용량이 너무 큽니다. 더 작은 이미지를 선택해 주세요.' };
+  }
+  if (!testedContent || !fixedAfterTest) {
+    return { ok: false as const, error: '웹앱을 테스트한 내용과 테스트 후 수정한 내용을 모두 입력해 주세요.' };
+  }
+  if (!reasonAndResult) {
+    return { ok: false as const, error: '수정한 이유와 적용 결과를 서술해 주세요.' };
+  }
+  if (!safetyChecked) {
+    return { ok: false as const, error: '디지털 안전 약속 확인 체크를 완료해 주세요.' };
+  }
+
+  return {
+    ok: true as const,
+    data: {
+      grade,
+      classRoom,
+      studentNumber,
+      studentName,
+      beforeImage,
+      testedContent,
+      fixedAfterTest,
+      afterImage,
+      reasonAndResult,
+    },
+  };
+}
+
 function parseCookies(cookieHeader: string | null): Record<string, string> {
   if (!cookieHeader) return {};
   const map: Record<string, string> = {};
@@ -296,9 +367,6 @@ function validatePlanBody(body: unknown) {
     };
   }
   const resolvedFinalPrompt = finalPrompt || promptDraft;
-  if (!safetyChecked) {
-    return { ok: false as const, error: '디지털 안전 약속 확인 체크를 완료해 주세요.' };
-  }
 
   return {
     ok: true as const,
@@ -830,6 +898,9 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
     if (!reasonAndResult) {
       return jsonResponse({ error: '수정한 이유와 적용 결과를 서술해 주세요.' }, 400);
     }
+    if (raw.safetyChecked !== true) {
+      return jsonResponse({ error: '디지털 안전 약속 확인 체크를 완료해 주세요.' }, 400);
+    }
 
     const id = crypto.randomUUID();
     const nowIso = new Date().toISOString();
@@ -859,6 +930,12 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
         'INSERT INTO app_revision_details (revision_id, student_number, tested_content, fixed_after_test, updated_at) VALUES (?, ?, ?, ?, ?)',
       )
         .bind(id, studentNumber, testedContent, fixedAfterTest, nowIso)
+        .run();
+
+      await env.DB.prepare(
+        'UPDATE app_plans SET safety_checked = 1 WHERE grade = ? AND class_room = ? AND student_name = ?',
+      )
+        .bind(grade, classRoom, studentName)
         .run();
 
       return jsonResponse(
@@ -974,6 +1051,354 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
       return jsonResponse({ ok: true });
     } catch {
       return jsonResponse({ error: '수정하기 기록 삭제 중 오류가 발생했습니다.' }, 500);
+    }
+  }
+
+  // Student report lookup (returns latest matching plan + revision by grade, classRoom, studentNumber, studentName)
+  if (path === '/api/report/lookup' && method === 'POST') {
+    let body: unknown;
+    try {
+      body = await request.json();
+    } catch {
+      return jsonResponse({ error: '올바른 JSON 요청 본문이 아닙니다.' }, 400);
+    }
+
+    const raw = (body || {}) as Record<string, unknown>;
+    const lookup = {
+      grade: sanitizeText(raw.grade, 20),
+      classRoom: sanitizeText(raw.classRoom, 20),
+      studentNumber: sanitizeText(raw.studentNumber, 20),
+      studentName: sanitizeText(raw.studentName, 40),
+    };
+
+    if (!lookup.grade || !lookup.classRoom || !lookup.studentNumber || !lookup.studentName) {
+      return jsonResponse({ error: '학년, 반, 번호, 성명을 모두 입력해 주세요.' }, 400);
+    }
+
+    try {
+      const { results: planRows } = await env.DB.prepare(
+        "SELECT a.id, a.grade, a.class_room, COALESCE(m.student_number, '') AS student_number, a.student_name, a.discovery_source, a.problem_summary, a.urgency_reason, a.public_benefit_reason, a.inquiry_question, COALESCE(m.app_title, '') AS app_title, a.screen_composition, a.features_to_implement, a.data_to_store, a.constraints, a.programming_principles, a.safety_checked, a.rubric_level, a.teacher_note, COALESCE(p.prompt_draft, '') AS prompt_draft, COALESCE(p.final_prompt, '') AS final_prompt, a.created_at, a.updated_at FROM app_plans a LEFT JOIN app_plan_prompts p ON p.plan_id = a.id LEFT JOIN app_plan_meta m ON m.plan_id = a.id WHERE TRIM(a.student_name) = ? ORDER BY a.updated_at DESC LIMIT 50",
+      )
+        .bind(lookup.studentName)
+        .all<AppPlanRow>();
+
+      const { results: revisionRows } = await env.DB.prepare(
+        "SELECT r.id, r.grade, r.class_room, COALESCE(d.student_number, '') AS student_number, r.student_name, r.before_image, r.before_code, r.after_code, COALESCE(d.tested_content, '') AS tested_content, COALESCE(d.fixed_after_test, '') AS fixed_after_test, r.after_image, r.reason_and_result, r.review_status, r.teacher_note, r.created_at, r.updated_at FROM app_revisions r LEFT JOIN app_revision_details d ON d.revision_id = r.id WHERE TRIM(r.student_name) = ? ORDER BY r.updated_at DESC LIMIT 50",
+      )
+        .bind(lookup.studentName)
+        .all<AppRevisionRow>();
+
+      const matchedPlan = planRows.find((row) => matchesStudentIdentity(row, lookup)) ?? null;
+      const matchedRevision = revisionRows.find((row) => matchesStudentIdentity(row, lookup)) ?? null;
+
+      if (!matchedPlan && !matchedRevision) {
+        return jsonResponse(
+          { error: '입력하신 학년, 반, 번호, 성명과 일치하는 제출 보고서를 찾을 수 없습니다.' },
+          404,
+        );
+      }
+
+      return jsonResponse({
+        plan: matchedPlan ? mapRowToPlan(matchedPlan) : null,
+        revision: matchedRevision ? mapRowToRevision(matchedRevision) : null,
+      });
+    } catch {
+      return jsonResponse({ error: '보고서 조회 중 오류가 발생했습니다.' }, 500);
+    }
+  }
+
+  // Update existing plan while in report editing mode
+  if (path === '/api/report/plan' && method === 'PUT') {
+    let body: unknown;
+    try {
+      body = await request.json();
+    } catch {
+      return jsonResponse({ error: '올바른 JSON 요청 본문이 아닙니다.' }, 400);
+    }
+
+    const raw = (body || {}) as Record<string, unknown>;
+    const planId = sanitizeText(raw.planId, 80);
+    const lookupRaw = (raw.lookup || {}) as Record<string, unknown>;
+    const lookup = {
+      grade: sanitizeText(lookupRaw.grade, 20),
+      classRoom: sanitizeText(lookupRaw.classRoom, 20),
+      studentNumber: sanitizeText(lookupRaw.studentNumber, 20),
+      studentName: sanitizeText(lookupRaw.studentName, 40),
+    };
+
+    if (!planId || !lookup.grade || !lookup.classRoom || !lookup.studentNumber || !lookup.studentName) {
+      return jsonResponse({ error: '수정할 보고서 식별 정보가 올바르지 않습니다.' }, 400);
+    }
+
+    const parsedPlan = validatePlanBody(raw.plan);
+    if (!parsedPlan.ok) {
+      return jsonResponse({ error: parsedPlan.error }, 400);
+    }
+
+    try {
+      const existing = await env.DB.prepare(
+        "SELECT a.id, a.grade, a.class_room, COALESCE(m.student_number, '') AS student_number, a.student_name FROM app_plans a LEFT JOIN app_plan_meta m ON m.plan_id = a.id WHERE a.id = ?",
+      )
+        .bind(planId)
+        .first<{ id: string; grade: string; class_room: string; student_number: string; student_name: string }>();
+
+      if (!existing || !matchesStudentIdentity(existing, lookup)) {
+        return jsonResponse({ error: '수정 권한이 확인되지 않거나 기존 기획서를 찾을 수 없습니다.' }, 403);
+      }
+
+      const d = parsedPlan.data;
+      const nowIso = new Date().toISOString();
+
+      await env.DB.prepare(
+        'UPDATE app_plans SET grade = ?, class_room = ?, student_name = ?, discovery_source = ?, problem_summary = ?, urgency_reason = ?, public_benefit_reason = ?, inquiry_question = ?, screen_composition = ?, features_to_implement = ?, data_to_store = ?, constraints = ?, programming_principles = ?, updated_at = ? WHERE id = ?',
+      )
+        .bind(
+          d.grade,
+          d.classRoom,
+          d.studentName,
+          d.discoverySource,
+          d.problemSummary,
+          d.urgencyReason,
+          d.publicBenefitReason,
+          d.inquiryQuestion,
+          d.screenComposition,
+          d.featuresToImplement,
+          d.dataToStore,
+          d.constraints,
+          d.programmingPrinciples,
+          nowIso,
+          planId,
+        )
+        .run();
+
+      await env.DB.prepare(
+        'INSERT OR REPLACE INTO app_plan_prompts (plan_id, prompt_draft, final_prompt, updated_at) VALUES (?, ?, ?, ?)',
+      )
+        .bind(planId, d.promptDraft, d.finalPrompt, nowIso)
+        .run();
+
+      await env.DB.prepare(
+        'INSERT OR REPLACE INTO app_plan_meta (plan_id, student_number, app_title, updated_at) VALUES (?, ?, ?, ?)',
+      )
+        .bind(planId, d.studentNumber, d.appTitle, nowIso)
+        .run();
+
+      const updatedRow = await env.DB.prepare(
+        "SELECT a.id, a.grade, a.class_room, COALESCE(m.student_number, '') AS student_number, a.student_name, a.discovery_source, a.problem_summary, a.urgency_reason, a.public_benefit_reason, a.inquiry_question, COALESCE(m.app_title, '') AS app_title, a.screen_composition, a.features_to_implement, a.data_to_store, a.constraints, a.programming_principles, a.safety_checked, a.rubric_level, a.teacher_note, COALESCE(p.prompt_draft, '') AS prompt_draft, COALESCE(p.final_prompt, '') AS final_prompt, a.created_at, a.updated_at FROM app_plans a LEFT JOIN app_plan_prompts p ON p.plan_id = a.id LEFT JOIN app_plan_meta m ON m.plan_id = a.id WHERE a.id = ?",
+      )
+        .bind(planId)
+        .first<AppPlanRow>();
+
+      return jsonResponse({ plan: updatedRow ? mapRowToPlan(updatedRow) : null });
+    } catch {
+      return jsonResponse({ error: '기획서 내용 수정 저장 중 오류가 발생했습니다.' }, 500);
+    }
+  }
+
+  // Update full report (plan + revision) on final '보고서 제출하기' in editing mode
+  if (path === '/api/report' && method === 'PUT') {
+    let body: unknown;
+    try {
+      body = await request.json();
+    } catch {
+      return jsonResponse({ error: '올바른 JSON 요청 본문이 아닙니다.' }, 400);
+    }
+
+    const raw = (body || {}) as Record<string, unknown>;
+    const planIdInput = sanitizeText(raw.planId, 80) || null;
+    const revisionIdInput = sanitizeText(raw.revisionId, 80) || null;
+    const lookupRaw = (raw.lookup || {}) as Record<string, unknown>;
+    const lookup = {
+      grade: sanitizeText(lookupRaw.grade, 20),
+      classRoom: sanitizeText(lookupRaw.classRoom, 20),
+      studentNumber: sanitizeText(lookupRaw.studentNumber, 20),
+      studentName: sanitizeText(lookupRaw.studentName, 40),
+    };
+
+    if (!lookup.grade || !lookup.classRoom || !lookup.studentNumber || !lookup.studentName) {
+      return jsonResponse({ error: '수정할 작성자 확인 정보가 필요합니다.' }, 400);
+    }
+
+    const revisionRaw = (raw.revision || {}) as Record<string, unknown>;
+    const parsedRevision = validateRevisionPayload(revisionRaw);
+    if (!parsedRevision.ok) {
+      return jsonResponse({ error: parsedRevision.error }, 400);
+    }
+
+    let parsedPlanData: ReturnType<typeof validatePlanBody> | null = null;
+    if (planIdInput || raw.plan) {
+      const checkPlan = validatePlanBody(raw.plan);
+      if (!checkPlan.ok) {
+        if (planIdInput) {
+          return jsonResponse({ error: `문제탐색·앱 기획서 항목 확인 필요: ${checkPlan.error}` }, 400);
+        }
+      } else {
+        parsedPlanData = checkPlan;
+      }
+    }
+
+    try {
+      if (planIdInput) {
+        const existingPlan = await env.DB.prepare(
+          "SELECT a.id, a.grade, a.class_room, COALESCE(m.student_number, '') AS student_number, a.student_name FROM app_plans a LEFT JOIN app_plan_meta m ON m.plan_id = a.id WHERE a.id = ?",
+        )
+          .bind(planIdInput)
+          .first<{ id: string; grade: string; class_room: string; student_number: string; student_name: string }>();
+
+        if (!existingPlan || !matchesStudentIdentity(existingPlan, lookup)) {
+          return jsonResponse({ error: '기존 문제탐색·앱 기획서 수정 권한을 확인할 수 없습니다.' }, 403);
+        }
+      }
+
+      if (revisionIdInput) {
+        const existingRevision = await env.DB.prepare(
+          "SELECT r.id, r.grade, r.class_room, COALESCE(d.student_number, '') AS student_number, r.student_name FROM app_revisions r LEFT JOIN app_revision_details d ON d.revision_id = r.id WHERE r.id = ?",
+        )
+          .bind(revisionIdInput)
+          .first<{ id: string; grade: string; class_room: string; student_number: string; student_name: string }>();
+
+        if (!existingRevision || !matchesStudentIdentity(existingRevision, lookup)) {
+          return jsonResponse({ error: '기존 수정하기 보고서 수정 권한을 확인할 수 없습니다.' }, 403);
+        }
+      }
+
+      const nowIso = new Date().toISOString();
+      let savedPlanId = planIdInput;
+
+      if (parsedPlanData && parsedPlanData.ok) {
+        const p = parsedPlanData.data;
+        if (savedPlanId) {
+          await env.DB.prepare(
+            'UPDATE app_plans SET grade = ?, class_room = ?, student_name = ?, discovery_source = ?, problem_summary = ?, urgency_reason = ?, public_benefit_reason = ?, inquiry_question = ?, screen_composition = ?, features_to_implement = ?, data_to_store = ?, constraints = ?, programming_principles = ?, safety_checked = 1, updated_at = ? WHERE id = ?',
+          )
+            .bind(
+              p.grade,
+              p.classRoom,
+              p.studentName,
+              p.discoverySource,
+              p.problemSummary,
+              p.urgencyReason,
+              p.publicBenefitReason,
+              p.inquiryQuestion,
+              p.screenComposition,
+              p.featuresToImplement,
+              p.dataToStore,
+              p.constraints,
+              p.programmingPrinciples,
+              nowIso,
+              savedPlanId,
+            )
+            .run();
+        } else {
+          savedPlanId = crypto.randomUUID();
+          await env.DB.prepare(
+            'INSERT INTO app_plans (id, grade, class_room, student_name, discovery_source, problem_summary, urgency_reason, public_benefit_reason, inquiry_question, screen_composition, features_to_implement, data_to_store, constraints, programming_principles, safety_checked, rubric_level, teacher_note, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+          )
+            .bind(
+              savedPlanId,
+              p.grade,
+              p.classRoom,
+              p.studentName,
+              p.discoverySource,
+              p.problemSummary,
+              p.urgencyReason,
+              p.publicBenefitReason,
+              p.inquiryQuestion,
+              p.screenComposition,
+              p.featuresToImplement,
+              p.dataToStore,
+              p.constraints,
+              p.programmingPrinciples,
+              1,
+              '미확인',
+              '',
+              nowIso,
+              nowIso,
+            )
+            .run();
+        }
+
+        await env.DB.prepare(
+          'INSERT OR REPLACE INTO app_plan_prompts (plan_id, prompt_draft, final_prompt, updated_at) VALUES (?, ?, ?, ?)',
+        )
+          .bind(savedPlanId, p.promptDraft, p.finalPrompt, nowIso)
+          .run();
+
+        await env.DB.prepare(
+          'INSERT OR REPLACE INTO app_plan_meta (plan_id, student_number, app_title, updated_at) VALUES (?, ?, ?, ?)',
+        )
+          .bind(savedPlanId, p.studentNumber, p.appTitle, nowIso)
+          .run();
+      }
+
+      const r = parsedRevision.data;
+      let savedRevisionId = revisionIdInput;
+      if (savedRevisionId) {
+        await env.DB.prepare(
+          'UPDATE app_revisions SET grade = ?, class_room = ?, student_name = ?, before_image = ?, before_code = ?, after_code = ?, after_image = ?, reason_and_result = ?, updated_at = ? WHERE id = ?',
+        )
+          .bind(
+            r.grade,
+            r.classRoom,
+            r.studentName,
+            r.beforeImage,
+            r.testedContent,
+            r.fixedAfterTest,
+            r.afterImage,
+            r.reasonAndResult,
+            nowIso,
+            savedRevisionId,
+          )
+          .run();
+      } else {
+        savedRevisionId = crypto.randomUUID();
+        await env.DB.prepare(
+          'INSERT INTO app_revisions (id, grade, class_room, student_name, before_image, before_code, after_code, after_image, reason_and_result, review_status, teacher_note, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        )
+          .bind(
+            savedRevisionId,
+            r.grade,
+            r.classRoom,
+            r.studentName,
+            r.beforeImage,
+            r.testedContent,
+            r.fixedAfterTest,
+            r.afterImage,
+            r.reasonAndResult,
+            '미확인',
+            '',
+            nowIso,
+            nowIso,
+          )
+          .run();
+      }
+
+      await env.DB.prepare(
+        'INSERT OR REPLACE INTO app_revision_details (revision_id, student_number, tested_content, fixed_after_test, updated_at) VALUES (?, ?, ?, ?, ?)',
+      )
+        .bind(savedRevisionId, r.studentNumber, r.testedContent, r.fixedAfterTest, nowIso)
+        .run();
+
+      const updatedPlanRow = savedPlanId
+        ? await env.DB.prepare(
+            "SELECT a.id, a.grade, a.class_room, COALESCE(m.student_number, '') AS student_number, a.student_name, a.discovery_source, a.problem_summary, a.urgency_reason, a.public_benefit_reason, a.inquiry_question, COALESCE(m.app_title, '') AS app_title, a.screen_composition, a.features_to_implement, a.data_to_store, a.constraints, a.programming_principles, a.safety_checked, a.rubric_level, a.teacher_note, COALESCE(p.prompt_draft, '') AS prompt_draft, COALESCE(p.final_prompt, '') AS final_prompt, a.created_at, a.updated_at FROM app_plans a LEFT JOIN app_plan_prompts p ON p.plan_id = a.id LEFT JOIN app_plan_meta m ON m.plan_id = a.id WHERE a.id = ?",
+          )
+            .bind(savedPlanId)
+            .first<AppPlanRow>()
+        : null;
+
+      const updatedRevisionRow = await env.DB.prepare(
+        "SELECT r.id, r.grade, r.class_room, COALESCE(d.student_number, '') AS student_number, r.student_name, r.before_image, r.before_code, r.after_code, COALESCE(d.tested_content, '') AS tested_content, COALESCE(d.fixed_after_test, '') AS fixed_after_test, r.after_image, r.reason_and_result, r.review_status, r.teacher_note, r.created_at, r.updated_at FROM app_revisions r LEFT JOIN app_revision_details d ON d.revision_id = r.id WHERE r.id = ?",
+      )
+        .bind(savedRevisionId)
+        .first<AppRevisionRow>();
+
+      return jsonResponse({
+        plan: updatedPlanRow ? mapRowToPlan(updatedPlanRow) : null,
+        revision: updatedRevisionRow ? mapRowToRevision(updatedRevisionRow) : null,
+      });
+    } catch {
+      return jsonResponse({ error: '보고서 수정 내용을 저장하는 중 오류가 발생했습니다.' }, 500);
     }
   }
 

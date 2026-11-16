@@ -1,14 +1,70 @@
-import { useState } from 'react';
-import { ArrowRight, ChevronDown, ChevronUp, Code2, ShieldCheck } from 'lucide-react';
+import { useState, type FormEvent } from 'react';
+import { ArrowRight, ChevronDown, ChevronUp, Code2, FileEdit, ShieldCheck, X } from 'lucide-react';
 import heroImage from '../assets/images/webapp_project_hero_1794716108520.jpg';
+import type { AppPlanSubmission, AppRevisionSubmission, StudentLookupIdentity } from '../types/lesson';
+import { lookupStudentReport } from '../services/planApi';
 
 interface LessonOverviewProps {
   onStartDiscovery: () => void;
+  onLoadedReportForEdit: (payload: {
+    plan: AppPlanSubmission | null;
+    revision: AppRevisionSubmission | null;
+    lookup: StudentLookupIdentity;
+  }) => void;
 }
 
-export default function LessonOverview({ onStartDiscovery }: LessonOverviewProps) {
+export default function LessonOverview({
+  onStartDiscovery,
+  onLoadedReportForEdit,
+}: LessonOverviewProps) {
   const [showStandards, setShowStandards] = useState(false);
   const [imgError, setImgError] = useState(false);
+  const [showLookupModal, setShowLookupModal] = useState(false);
+  const [lookupGrade, setLookupGrade] = useState('');
+  const [lookupClass, setLookupClass] = useState('');
+  const [lookupNumber, setLookupNumber] = useState('');
+  const [lookupName, setLookupName] = useState('');
+  const [lookupLoading, setLookupLoading] = useState(false);
+  const [lookupError, setLookupError] = useState<string | null>(null);
+
+  function openLookupModal() {
+    setLookupError(null);
+    setShowLookupModal(true);
+  }
+
+  async function handleLookupSubmit(e: FormEvent) {
+    e.preventDefault();
+    setLookupError(null);
+
+    const identity: StudentLookupIdentity = {
+      grade: lookupGrade.trim(),
+      classRoom: lookupClass.trim(),
+      studentNumber: lookupNumber.trim(),
+      studentName: lookupName.trim(),
+    };
+
+    if (!identity.grade || !identity.classRoom || !identity.studentNumber || !identity.studentName) {
+      setLookupError('학년, 반, 번호, 성명을 모두 입력해 주세요.');
+      return;
+    }
+
+    setLookupLoading(true);
+    try {
+      const res = await lookupStudentReport(identity);
+      if (!res.connected || !res.ok) {
+        setLookupError(res.error || '보고서를 불러오지 못했습니다.');
+        return;
+      }
+      setShowLookupModal(false);
+      onLoadedReportForEdit({
+        plan: res.plan ?? null,
+        revision: res.revision ?? null,
+        lookup: identity,
+      });
+    } finally {
+      setLookupLoading(false);
+    }
+  }
 
   return (
     <section id="lesson-overview" className="mx-auto max-w-6xl px-4 py-8 sm:px-6 sm:py-10">
@@ -41,6 +97,16 @@ export default function LessonOverview({ onStartDiscovery }: LessonOverviewProps
                 <span>문제탐색 시작하기</span>
                 <ArrowRight className="h-4 w-4" />
               </button>
+
+              <button
+                type="button"
+                onClick={openLookupModal}
+                className="inline-flex min-h-[48px] w-full items-center justify-center gap-2 rounded-lg border border-slate-600 bg-slate-800/90 px-5 py-3 text-sm font-bold text-white hover:border-slate-400 hover:bg-slate-700 transition-colors whitespace-nowrap shrink-0 cursor-pointer sm:w-auto"
+              >
+                <FileEdit className="h-4 w-4 text-blue-300" />
+                <span>내 보고서 수정하기</span>
+                <ArrowRight className="h-4 w-4" />
+              </button>
             </div>
           </div>
 
@@ -64,6 +130,145 @@ export default function LessonOverview({ onStartDiscovery }: LessonOverviewProps
           </div>
         </div>
       </div>
+
+      {showLookupModal && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="lookup-modal-title"
+          onClick={() => !lookupLoading && setShowLookupModal(false)}
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 p-4"
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="w-full max-w-md rounded-2xl border border-slate-300 bg-white p-6 text-slate-900 shadow-xl"
+          >
+            <div className="flex items-start justify-between gap-3 border-b border-slate-200 pb-3.5">
+              <div>
+                <h2 id="lookup-modal-title" className="text-lg font-extrabold text-slate-950">
+                  내 보고서 불러오기
+                </h2>
+                <p className="mt-1 text-xs leading-relaxed text-slate-600">
+                  제출했던 학년, 반, 번호, 성명을 입력하면 문제탐색 · 앱 기획서 · 수정하기 내용을 단계별로 불러옵니다.
+                </p>
+              </div>
+              <button
+                type="button"
+                disabled={lookupLoading}
+                onClick={() => setShowLookupModal(false)}
+                aria-label="창 닫기"
+                className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 text-slate-500 hover:bg-slate-100 cursor-pointer shrink-0"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <form onSubmit={handleLookupSubmit} className="mt-4 space-y-4">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label htmlFor="lookupGrade" className="block text-xs font-semibold text-slate-700">
+                    학년
+                  </label>
+                  <input
+                    id="lookupGrade"
+                    type="text"
+                    inputMode="numeric"
+                    maxLength={20}
+                    value={lookupGrade}
+                    onChange={(e) => {
+                      setLookupGrade(e.target.value);
+                      if (lookupError) setLookupError(null);
+                    }}
+                    placeholder="예: 1"
+                    className="mt-1.5 min-h-[44px] w-full rounded-lg border border-slate-300 bg-white px-3.5 py-2 text-base text-slate-900 placeholder:text-slate-400 focus:border-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-600/20 sm:text-sm"
+                  />
+                </div>
+
+                <div>
+                  <label htmlFor="lookupClass" className="block text-xs font-semibold text-slate-700">
+                    반
+                  </label>
+                  <input
+                    id="lookupClass"
+                    type="text"
+                    inputMode="numeric"
+                    maxLength={20}
+                    value={lookupClass}
+                    onChange={(e) => {
+                      setLookupClass(e.target.value);
+                      if (lookupError) setLookupError(null);
+                    }}
+                    placeholder="예: 3"
+                    className="mt-1.5 min-h-[44px] w-full rounded-lg border border-slate-300 bg-white px-3.5 py-2 text-base text-slate-900 placeholder:text-slate-400 focus:border-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-600/20 sm:text-sm"
+                  />
+                </div>
+
+                <div>
+                  <label htmlFor="lookupNumber" className="block text-xs font-semibold text-slate-700">
+                    번호
+                  </label>
+                  <input
+                    id="lookupNumber"
+                    type="text"
+                    inputMode="numeric"
+                    maxLength={20}
+                    value={lookupNumber}
+                    onChange={(e) => {
+                      setLookupNumber(e.target.value);
+                      if (lookupError) setLookupError(null);
+                    }}
+                    placeholder="예: 5"
+                    className="mt-1.5 min-h-[44px] w-full rounded-lg border border-slate-300 bg-white px-3.5 py-2 text-base text-slate-900 placeholder:text-slate-400 focus:border-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-600/20 sm:text-sm"
+                  />
+                </div>
+
+                <div>
+                  <label htmlFor="lookupName" className="block text-xs font-semibold text-slate-700">
+                    성명
+                  </label>
+                  <input
+                    id="lookupName"
+                    type="text"
+                    maxLength={40}
+                    value={lookupName}
+                    onChange={(e) => {
+                      setLookupName(e.target.value);
+                      if (lookupError) setLookupError(null);
+                    }}
+                    placeholder="예: 홍길동"
+                    className="mt-1.5 min-h-[44px] w-full rounded-lg border border-slate-300 bg-white px-3.5 py-2 text-base text-slate-900 placeholder:text-slate-400 focus:border-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-600/20 sm:text-sm"
+                  />
+                </div>
+              </div>
+
+              {lookupError && (
+                <div role="alert" className="rounded-lg border border-red-200 bg-red-50 px-3.5 py-2.5 text-xs leading-relaxed text-red-800">
+                  {lookupError}
+                </div>
+              )}
+
+              <div className="flex flex-col-reverse gap-2 pt-2 sm:flex-row sm:justify-end">
+                <button
+                  type="button"
+                  disabled={lookupLoading}
+                  onClick={() => setShowLookupModal(false)}
+                  className="min-h-[44px] rounded-lg border border-slate-300 bg-white px-4 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 cursor-pointer"
+                >
+                  취소
+                </button>
+                <button
+                  type="submit"
+                  disabled={lookupLoading}
+                  className="inline-flex min-h-[44px] items-center justify-center gap-1.5 rounded-lg bg-blue-700 px-5 py-2 text-xs font-bold text-white hover:bg-blue-800 disabled:opacity-60 cursor-pointer"
+                >
+                  <span>{lookupLoading ? '보고서 조회 중...' : '보고서 불러오기'}</span>
+                  <ArrowRight className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {/* 핵심 질문 & 핵심 과업 */}
       <div className="mt-6 grid gap-4 sm:grid-cols-2">

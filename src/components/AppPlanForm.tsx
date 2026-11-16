@@ -1,18 +1,20 @@
 import { useState, type FormEvent } from 'react';
-import { ArrowLeft, Check, CheckCircle2, Clock, Copy, RotateCcw, Send } from 'lucide-react';
-import type { AppPlanInput, AppPlanSubmission } from '../types/lesson';
-import { submitPlanToApi, type BackendMode } from '../services/planApi';
+import { ArrowLeft, ArrowRight, Check, CheckCircle2, Clock, Copy, RotateCcw } from 'lucide-react';
+import type { AppPlanInput, AppPlanSubmission, EditingReportSession } from '../types/lesson';
+import { submitPlanToApi, updatePlanReportInApi, type BackendMode } from '../services/planApi';
 import { buildPromptDraft } from '../utils/promptDraft';
 
 interface AppPlanFormProps {
   form: AppPlanInput;
   onUpdateField: <K extends keyof AppPlanInput>(key: K, value: AppPlanInput[K]) => void;
   onGoToDiscovery: () => void;
+  onGoToRevision: () => void;
   backendMode: BackendMode;
   lastSavedPlan: AppPlanSubmission | null;
   onPlanSaved: (plan: AppPlanSubmission) => void;
   onBackendModeChange: (mode: BackendMode) => void;
   onResetDraft: () => void;
+  editingReport: EditingReportSession | null;
 }
 
 function formatAuthorSummary(form: AppPlanInput): string {
@@ -31,11 +33,13 @@ export default function AppPlanForm({
   form,
   onUpdateField,
   onGoToDiscovery,
+  onGoToRevision,
   backendMode,
   lastSavedPlan,
   onPlanSaved,
   onBackendModeChange,
   onResetDraft,
+  editingReport,
 }: AppPlanFormProps) {
   const [submitting, setSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -107,24 +111,31 @@ export default function AppPlanForm({
       setErrorMessage('앱 기획서 4가지 항목(기능, 저장 데이터, 제약사항, 프로그래밍 원리)을 모두 작성해 주세요.');
       return;
     }
-    if (!form.safetyChecked) {
-      setErrorMessage('디지털 안전 약속 확인 체크박스를 선택해 주세요.');
-      return;
-    }
 
     setSubmitting(true);
     try {
-      const result = await submitPlanToApi({
+      const payload = {
         ...form,
         finalPrompt: effectivePrompt,
         promptDraft: promptDraftText,
-      });
+      };
+      const result =
+        editingReport?.active && editingReport.planId
+          ? await updatePlanReportInApi({
+              planId: editingReport.planId,
+              lookup: editingReport.lookup,
+              plan: payload,
+            })
+          : await submitPlanToApi(payload);
       if (result.connected && result.ok && result.plan) {
         onBackendModeChange('ready');
         onPlanSaved(result.plan);
         setSuccessMessage(
-          '앱 기획서가 D1 저장소에 안전하게 제출되었습니다. 비공개 응답 보호 원칙에 따라 제출 내역은 교사만 열람할 수 있습니다.',
+          editingReport?.active
+            ? '앱 기획서 수정 내용이 저장되었습니다. 3단계에서 보고서 제출하기를 눌러 전체 수정을 완료하세요.'
+            : '앱 기획서가 D1 저장소에 안전하게 제출되었습니다. 비공개 응답 보호 원칙에 따라 제출 내역은 교사만 열람할 수 있습니다.',
         );
+        onGoToRevision();
       } else if (!result.connected) {
         onBackendModeChange('unavailable');
         setErrorMessage(
@@ -408,24 +419,12 @@ export default function AppPlanForm({
           </div>
         </div>
 
-        {/* 디지털 안전 약속 확인 및 응답 제출 */}
+        {/* 응답 저장 및 다음 단계 이동 */}
         <div className="rounded-xl border border-slate-300 bg-white p-4 sm:p-6">
-          <label className="flex min-h-[44px] items-start gap-3 py-1 cursor-pointer">
-            <input
-              type="checkbox"
-              checked={form.safetyChecked}
-              onChange={(e) => handleFieldChange('safetyChecked', e.target.checked)}
-              className="mt-0.5 h-5 w-5 shrink-0 rounded border-slate-300 text-blue-700 focus:ring-blue-600"
-            />
-            <span className="text-sm leading-relaxed text-slate-700">
-              <strong className="font-semibold text-slate-900">디지털 안전 약속 확인</strong> — 공공의 이익에 반하지 않는 주제로 작성하였습니다.
-            </span>
-          </label>
-
           {errorMessage && (
             <div
               role="alert"
-              className="mt-4 flex flex-col gap-2 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800 sm:flex-row sm:items-center sm:justify-between"
+              className="mb-4 flex flex-col gap-2 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800 sm:flex-row sm:items-center sm:justify-between"
             >
               <span>{errorMessage}</span>
               {missingDiscovery && (
@@ -443,14 +442,14 @@ export default function AppPlanForm({
           {successMessage && (
             <div
               role="status"
-              className="mt-4 flex items-start gap-2.5 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm leading-relaxed text-emerald-900"
+              className="mb-4 flex items-start gap-2.5 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm leading-relaxed text-emerald-900"
             >
               <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-700" />
               <span>{successMessage}</span>
             </div>
           )}
 
-          <div className="mt-6 flex flex-col gap-3 border-t border-slate-100 pt-5 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div className="text-xs text-slate-500 font-mono-tabular">
               {lastSavedPlan
                 ? `최근 저장 완료: ${new Date(lastSavedPlan.updatedAt).toLocaleString('ko-KR')}`
@@ -464,8 +463,8 @@ export default function AppPlanForm({
               disabled={submitting}
               className="inline-flex min-h-[48px] w-full items-center justify-center gap-2 rounded-lg bg-blue-700 px-5 py-3 text-sm font-bold text-white hover:bg-blue-800 disabled:opacity-60 transition-colors whitespace-nowrap shrink-0 cursor-pointer sm:w-auto sm:min-h-[46px]"
             >
-              <Send className="h-4 w-4" />
-              <span>{submitting ? '저장 요청 중...' : '앱 기획서 제출하기'}</span>
+              <span>{submitting ? '저장 요청 중...' : '3단계: 수정하기'}</span>
+              <ArrowRight className="h-4 w-4" />
             </button>
           </div>
         </div>

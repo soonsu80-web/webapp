@@ -615,3 +615,156 @@ export async function deleteRevisionFromApi(id: string): Promise<{
   }
 }
 
+export async function lookupStudentReport(identity: {
+  grade: string;
+  classRoom: string;
+  studentNumber: string;
+  studentName: string;
+}): Promise<{
+  connected: boolean;
+  ok: boolean;
+  plan?: AppPlanSubmission | null;
+  revision?: AppRevisionSubmission | null;
+  error?: string;
+}> {
+  try {
+    const res = await fetch('/api/report/lookup', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+      },
+      credentials: 'same-origin',
+      body: JSON.stringify(identity),
+    });
+    if (!isJsonResponse(res)) {
+      return {
+        connected: false,
+        ok: false,
+        error: '저장 준비 중: /api 데이터 저장소가 연결되지 않아 기존 보고서를 불러올 수 없습니다.',
+      };
+    }
+    const data = await res.json();
+    if (!res.ok) {
+      return {
+        connected: true,
+        ok: false,
+        error: typeof data?.error === 'string' ? data.error : '보고서를 조회하지 못했습니다.',
+      };
+    }
+    return {
+      connected: true,
+      ok: true,
+      plan: data?.plan ? { ...data.plan, storageState: 'synced' } : null,
+      revision: data?.revision ?? null,
+    };
+  } catch {
+    return {
+      connected: false,
+      ok: false,
+      error: '서버와 통신하지 못해 보고서를 불러오지 못했습니다.',
+    };
+  }
+}
+
+export async function updatePlanReportInApi(params: {
+  planId: string;
+  lookup: { grade: string; classRoom: string; studentNumber: string; studentName: string };
+  plan: AppPlanInput & { promptDraft?: string };
+}): Promise<{
+  connected: boolean;
+  ok: boolean;
+  plan?: AppPlanSubmission;
+  error?: string;
+}> {
+  try {
+    const res = await fetch('/api/report/plan', {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+      },
+      credentials: 'same-origin',
+      body: JSON.stringify(params),
+    });
+    if (!isJsonResponse(res)) {
+      return {
+        connected: false,
+        ok: false,
+        error: '저장 준비 중: /api 데이터 저장소가 연결되지 않아 수정 내용이 저장되지 않았습니다.',
+      };
+    }
+    const data = await res.json();
+    if (!res.ok || !data?.plan) {
+      return {
+        connected: true,
+        ok: false,
+        error: typeof data?.error === 'string' ? data.error : '기획서 수정 저장에 실패했습니다.',
+      };
+    }
+    return {
+      connected: true,
+      ok: true,
+      plan: { ...data.plan, storageState: 'synced' },
+    };
+  } catch {
+    return {
+      connected: false,
+      ok: false,
+      error: '서버와 통신하지 못해 수정 내용이 저장되지 않았습니다.',
+    };
+  }
+}
+
+export async function updateFullReportInApi(params: {
+  planId: string | null;
+  revisionId: string | null;
+  lookup: { grade: string; classRoom: string; studentNumber: string; studentName: string };
+  plan: AppPlanInput & { promptDraft?: string };
+  revision: AppRevisionInput;
+}): Promise<{
+  connected: boolean;
+  ok: boolean;
+  plan?: AppPlanSubmission | null;
+  revision?: AppRevisionSubmission | null;
+  error?: string;
+}> {
+  try {
+    const res = await fetch('/api/report', {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+      },
+      credentials: 'same-origin',
+      body: JSON.stringify(params),
+    });
+    if (!isJsonResponse(res)) {
+      return {
+        connected: false,
+        ok: false,
+        error: '저장 준비 중: /api 데이터 저장소가 연결되지 않아 보고서를 갱신할 수 없습니다.',
+      };
+    }
+    const data = await res.json();
+    if (!res.ok || !data?.revision) {
+      return {
+        connected: true,
+        ok: false,
+        error: typeof data?.error === 'string' ? data.error : '보고서 수정 저장에 실패했습니다.',
+      };
+    }
+    return {
+      connected: true,
+      ok: true,
+      plan: data?.plan ? { ...data.plan, storageState: 'synced' } : null,
+      revision: data.revision,
+    };
+  } catch {
+    return {
+      connected: false,
+      ok: false,
+      error: '서버와 통신하지 못해 보고서 수정 저장에 실패했습니다.',
+    };
+  }
+}
